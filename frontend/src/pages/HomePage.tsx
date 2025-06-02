@@ -1,121 +1,232 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  Container,
+  Typography,
+  Card,
+  CardContent,
+  Button,
+  Box,
+  Avatar,
+  Chip,
+  Stepper,
+  Step,
+  StepLabel,
+  Paper,
+} from '@mui/material';
+import {
+  CloudUpload as DocumentArrowUpIcon,
+  Chat as ChatBubbleLeftRightIcon,
+  Create as PencilSquareIcon,
+  Description,
+  QuestionAnswer,
+  AutoAwesome,
+  CheckCircle,
+} from '@mui/icons-material';
+
+const steps = [
+  'Upload your first document to get started',
+  'Configure Confluence integration (optional)',
+  'Start chatting with your documents',
+  'Generate new content based on your knowledge base'
+];
 
 const HomePage: React.FC = () => {
+  const navigate = useNavigate();
+
   return (
-    <div className="p-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Welcome to Document Assistant</h1>
-          <p className="mt-2 text-lg text-gray-600">
-            AI-powered document analysis and generation tool with offline capabilities
-          </p>
-        </div>
+    <Container maxWidth="xl" sx={{ py: 4 }}>
+      {/* Header */}
+      <Box sx={{ mb: 6 }}>
+        <Typography variant="h1" component="h1" sx={{ mb: 2 }}>
+          Welcome to Document Assistant
+        </Typography>
+        <Typography variant="h6" color="text.secondary" sx={{ maxWidth: 600 }}>
+          AI-powered document analysis and generation tool with offline capabilities
+        </Typography>
+      </Box>
 
-        {/* Feature cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-          {/* Upload Documents */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="text-center">
-              <div className="mx-auto h-12 w-12 text-blue-600 mb-4">
-                <svg className="w-full h-full" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-              </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Upload Documents</h3>
-              <p className="text-sm text-gray-500 mb-4">
-                Upload PDFs, Word docs, text files, and more for AI analysis
-              </p>
-              <button className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors">
-                Start Uploading
-              </button>
-            </div>
-          </div>
+      {/* Feature cards */}
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)' }, gap: 3, mb: 6 }}>
+        {/* Upload Documents */}
+        <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+          <CardContent sx={{ textAlign: 'center', flexGrow: 1, p: 4 }}>
+            <Avatar
+              sx={{
+                bgcolor: 'primary.light',
+                width: 64,
+                height: 64,
+                mx: 'auto',
+                mb: 3,
+              }}
+            >
+              <DocumentArrowUpIcon sx={{ fontSize: 32 }} />
+            </Avatar>
+            <Typography variant="h4" component="h3" sx={{ mb: 2 }}>
+              Upload Documents
+            </Typography>
+            <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+              Upload PDFs, Word docs, text files, and more for AI analysis
+            </Typography>
+            <Button
+              variant="contained"
+              color="primary"
+              size="large"
+              fullWidth
+              onClick={() => navigate('/documents')}
+              sx={{ mt: 'auto' }}
+            >
+              Start Uploading
+            </Button>
+          </CardContent>
+        </Card>
 
-          {/* Chat with Documents */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="text-center">
-              <div className="mx-auto h-12 w-12 text-green-600 mb-4">
-                <svg className="w-full h-full" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                </svg>
-              </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Chat with Documents</h3>
-              <p className="text-sm text-gray-500 mb-4">
-                Ask questions and get insights from your document collection
-              </p>
-              <button className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors">
-                Start Chatting
-              </button>
-            </div>
-          </div>
+        {/* Chat with Documents */}
+        <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+          <CardContent sx={{ textAlign: 'center', flexGrow: 1, p: 4 }}>
+            <Avatar
+              sx={{
+                bgcolor: 'success.light',
+                width: 64,
+                height: 64,
+                mx: 'auto',
+                mb: 3,
+              }}
+            >
+              <ChatBubbleLeftRightIcon sx={{ fontSize: 32 }} />
+            </Avatar>
+            <Typography variant="h4" component="h3" sx={{ mb: 2 }}>
+              Chat with Documents
+            </Typography>
+            <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+              Ask questions and get insights from your document collection
+            </Typography>
+            <Button
+              variant="contained"
+              color="success"
+              size="large"
+              fullWidth
+              onClick={() => navigate('/chat')}
+              sx={{ mt: 'auto' }}
+            >
+              Start Chatting
+            </Button>
+          </CardContent>
+        </Card>
 
-          {/* Generate Content */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="text-center">
-              <div className="mx-auto h-12 w-12 text-purple-600 mb-4">
-                <svg className="w-full h-full" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-              </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Generate Content</h3>
-              <p className="text-sm text-gray-500 mb-4">
-                Create new documents and Confluence pages with AI assistance
-              </p>
-              <button className="bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 transition-colors">
-                Generate Now
-              </button>
-            </div>
-          </div>
-        </div>
+        {/* Generate Content */}
+        <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+          <CardContent sx={{ textAlign: 'center', flexGrow: 1, p: 4 }}>
+            <Avatar
+              sx={{
+                bgcolor: 'secondary.light',
+                width: 64,
+                height: 64,
+                mx: 'auto',
+                mb: 3,
+              }}
+            >
+              <PencilSquareIcon sx={{ fontSize: 32 }} />
+            </Avatar>
+            <Typography variant="h4" component="h3" sx={{ mb: 2 }}>
+              Generate Content
+            </Typography>
+            <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+              Create new documents and Confluence pages with AI assistance
+            </Typography>
+            <Button
+              variant="contained"
+              color="secondary"
+              size="large"
+              fullWidth
+              onClick={() => navigate('/confluence')}
+              sx={{ mt: 'auto' }}
+            >
+              Generate Now
+            </Button>
+          </CardContent>
+        </Card>
+      </Box>
 
-        {/* Quick Stats */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Quick Overview</h2>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-blue-600">0</div>
-              <div className="text-sm text-gray-500">Documents Uploaded</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-green-600">0</div>
-              <div className="text-sm text-gray-500">Chat Sessions</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-purple-600">0</div>
-              <div className="text-sm text-gray-500">Pages Generated</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-orange-600">Offline</div>
-              <div className="text-sm text-gray-500">AI Model Status</div>
-            </div>
-          </div>
-        </div>
+      {/* Quick Stats */}
+      <Paper elevation={2} sx={{ p: 4, mb: 6 }}>
+        <Typography variant="h2" component="h2" sx={{ mb: 4 }}>
+          Quick Overview
+        </Typography>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: 3 }}>
+          <Box sx={{ textAlign: 'center', p: 3, bgcolor: 'primary.light', borderRadius: 2 }}>
+            <Typography variant="h3" color="primary.contrastText" sx={{ mb: 1 }}>
+              0
+            </Typography>
+            <Typography variant="body2" color="primary.contrastText">
+              Documents Uploaded
+            </Typography>
+          </Box>
+          <Box sx={{ textAlign: 'center', p: 3, bgcolor: 'success.light', borderRadius: 2 }}>
+            <Typography variant="h3" color="success.contrastText" sx={{ mb: 1 }}>
+              0
+            </Typography>
+            <Typography variant="body2" color="success.contrastText">
+              Chat Sessions
+            </Typography>
+          </Box>
+          <Box sx={{ textAlign: 'center', p: 3, bgcolor: 'secondary.light', borderRadius: 2 }}>
+            <Typography variant="h3" color="secondary.contrastText" sx={{ mb: 1 }}>
+              0
+            </Typography>
+            <Typography variant="body2" color="secondary.contrastText">
+              Pages Generated
+            </Typography>
+          </Box>
+          <Box sx={{ textAlign: 'center', p: 3, bgcolor: 'success.main', borderRadius: 2 }}>
+            <Typography variant="h3" color="success.contrastText" sx={{ mb: 1 }}>
+              Ready
+            </Typography>
+            <Typography variant="body2" color="success.contrastText">
+              AI Model Status
+            </Typography>
+          </Box>
+        </Box>
+      </Paper>
 
-        {/* Getting Started */}
-        <div className="mt-8 bg-blue-50 rounded-lg p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Getting Started</h2>
-          <div className="space-y-3">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-medium">1</div>
-              <div className="ml-3 text-gray-700">Upload your first document to get started</div>
-            </div>
-            <div className="flex items-center">
-              <div className="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-medium">2</div>
-              <div className="ml-3 text-gray-700">Configure Confluence integration (optional)</div>
-            </div>
-            <div className="flex items-center">
-              <div className="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-medium">3</div>
-              <div className="ml-3 text-gray-700">Start chatting with your documents</div>
-            </div>
-            <div className="flex items-center">
-              <div className="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-medium">4</div>
-              <div className="ml-3 text-gray-700">Generate new content based on your knowledge base</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+      {/* Getting Started */}
+      <Paper 
+        elevation={2} 
+        sx={{ 
+          p: 4, 
+          background: 'linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%)',
+        }}
+      >
+        <Typography variant="h2" component="h2" sx={{ mb: 4 }}>
+          Getting Started
+        </Typography>
+        <Stepper orientation="vertical">
+          {steps.map((step, index) => (
+            <Step key={index} active={true}>
+              <StepLabel
+                StepIconComponent={() => (
+                  <Avatar
+                    sx={{
+                      bgcolor: 'primary.main',
+                      width: 32,
+                      height: 32,
+                      fontSize: '0.875rem',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {index + 1}
+                  </Avatar>
+                )}
+              >
+                <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                  {step}
+                </Typography>
+              </StepLabel>
+            </Step>
+          ))}
+        </Stepper>
+      </Paper>
+    </Container>
   );
 };
 

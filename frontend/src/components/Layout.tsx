@@ -1,13 +1,24 @@
-import React, { ReactNode } from 'react';
+import React, { type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
-  HomeIcon,
-  DocumentTextIcon,
-  ChatBubbleLeftRightIcon,
-  CloudIcon,
-  CogIcon,
-} from '@heroicons/react/24/outline';
-import classNames from 'classnames';
+  Box,
+  Drawer,
+  List,
+  ListItem,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
+  Typography,
+  Divider,
+  Chip,
+} from '@mui/material';
+import {
+  Home as HomeIcon,
+  Description as DocumentTextIcon,
+  Chat as ChatBubbleLeftRightIcon,
+  Cloud as CloudIcon,
+  Settings as CogIcon,
+} from '@mui/icons-material';
 
 interface LayoutProps {
   children: ReactNode;
@@ -21,73 +32,132 @@ const navigation = [
   { name: 'Settings', href: '/settings', icon: CogIcon },
 ];
 
+const drawerWidth = 280;
+
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="flex">
-        {/* Sidebar */}
-        <div className="fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg">
-          <div className="flex h-full flex-col">
-            {/* Logo */}
-            <div className="flex items-center px-6 py-4">
-              <DocumentTextIcon className="h-8 w-8 text-blue-600" />
-              <span className="ml-2 text-xl font-bold text-gray-900">
-                Document Assistant
-              </span>
-            </div>
+    <Box sx={{ display: 'flex' }}>
+      {/* Sidebar */}
+      <Drawer
+        variant="permanent"
+        sx={{
+          width: drawerWidth,
+          flexShrink: 0,
+          '& .MuiDrawer-paper': {
+            width: drawerWidth,
+            boxSizing: 'border-box',
+            backgroundColor: 'background.paper',
+            borderRight: '1px solid',
+            borderColor: 'divider',
+          },
+        }}
+      >
+        <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+          {/* Logo */}
+          <Box
+            sx={{
+              p: 3,
+              borderBottom: '1px solid',
+              borderColor: 'divider',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            <DocumentTextIcon sx={{ color: 'primary.main', mr: 2 }} />
+            <Typography variant="h5" component="h1" sx={{ fontWeight: 600 }}>
+              Document Assistant
+            </Typography>
+          </Box>
 
-            {/* Navigation */}
-            <nav className="flex-1 space-y-1 px-3 py-4">
+          {/* Navigation */}
+          <Box sx={{ flexGrow: 1, p: 2 }}>
+            <List disablePadding>
               {navigation.map((item) => {
                 const isActive = location.pathname === item.href;
+                const IconComponent = item.icon;
                 return (
-                  <Link
-                    key={item.name}
-                    to={item.href}
-                    className={classNames(
-                      'group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors',
-                      {
-                        'bg-blue-50 text-blue-700 border-r-2 border-blue-700': isActive,
-                        'text-gray-600 hover:bg-gray-50 hover:text-gray-900': !isActive,
-                      }
-                    )}
-                  >
-                    <item.icon
-                      className={classNames(
-                        'mr-3 h-5 w-5 flex-shrink-0',
-                        {
-                          'text-blue-500': isActive,
-                          'text-gray-400 group-hover:text-gray-500': !isActive,
-                        }
-                      )}
-                    />
-                    {item.name}
-                  </Link>
+                  <ListItem key={item.name} disablePadding sx={{ mb: 0.5 }}>
+                    <ListItemButton
+                      component={Link}
+                      to={item.href}
+                      selected={isActive}
+                      sx={{
+                        borderRadius: 2,
+                        '&.Mui-selected': {
+                          backgroundColor: 'primary.light',
+                          color: 'primary.contrastText',
+                          '&:hover': {
+                            backgroundColor: 'primary.main',
+                          },
+                          '& .MuiListItemIcon-root': {
+                            color: 'primary.contrastText',
+                          },
+                        },
+                        '&:hover': {
+                          backgroundColor: 'action.hover',
+                        },
+                      }}
+                    >
+                      <ListItemIcon sx={{ minWidth: 40 }}>
+                        <IconComponent />
+                      </ListItemIcon>
+                      <ListItemText 
+                        primary={item.name}
+                        primaryTypographyProps={{
+                          fontWeight: isActive ? 600 : 500,
+                          fontSize: '0.95rem',
+                        }}
+                      />
+                    </ListItemButton>
+                  </ListItem>
                 );
               })}
-            </nav>
+            </List>
+          </Box>
 
-            {/* Footer */}
-            <div className="p-4 border-t border-gray-200">
-              <div className="text-xs text-gray-500 text-center">
-                Document Assistant v1.0.0
-                <br />
-                Powered by LlamaIndex & GPT4All
-              </div>
-            </div>
-          </div>
-        </div>
+          {/* Footer */}
+          <Box sx={{ p: 3, borderTop: '1px solid', borderColor: 'divider' }}>
+            <Box sx={{ textAlign: 'center', mb: 2 }}>
+              <Chip
+                label="AI Ready"
+                color="success"
+                size="small"
+                clickable={false}
+                onClick={(e) => e.stopPropagation()}
+                sx={{ mb: 1 }}
+              />
+            </Box>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{
+                display: 'block',
+                textAlign: 'center',
+                lineHeight: 1.4,
+              }}
+            >
+              Document Assistant v1.0.0
+              <br />
+              Powered by LlamaIndex & GPT4All
+            </Typography>
+          </Box>
+        </Box>
+      </Drawer>
 
-        {/* Main content */}
-        <div className="ml-64 flex-1">
-          <main className="min-h-screen">
-            {children}
-          </main>
-        </div>
-      </div>
-    </div>
+      {/* Main content */}
+      <Box
+        component="main"
+        sx={{
+          flexGrow: 1,
+          minHeight: '100vh',
+          backgroundColor: 'background.default',
+        }}
+      >
+        {children}
+      </Box>
+    </Box>
   );
 };
 
