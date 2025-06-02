@@ -109,12 +109,42 @@ export const confluenceAPI = {
   // Test connection
   async testConnection(config: {
     url: string;
-    username: string;
+    username?: string;
     token: string;
-    space_key: string;
-  }): Promise<{ success: boolean; message: string }> {
-    const response = await api.post('/confluence/test', config);
-    return response.data;
+    space_key?: string;
+    auth_type?: string;
+  }): Promise<{ 
+    success: boolean; 
+    message: string; 
+    user?: string;
+    space?: string;
+  }> {
+    try {
+      const response = await api.post('/confluence/test', config);
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        if (error.response) {
+          // Server responded with error status
+          console.error('Confluence test error response:', error.response.data);
+          return {
+            success: false,
+            message: error.response.data?.message || `Server error: ${error.response.status}`
+          };
+        } else if (error.request) {
+          // Request was made but no response received
+          return {
+            success: false,
+            message: 'No response from server. Please check if the backend is running.'
+          };
+        }
+      }
+      // Something else happened
+      return {
+        success: false,
+        message: `Request failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      };
+    }
   },
 
   // Import pages
