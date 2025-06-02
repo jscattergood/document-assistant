@@ -158,6 +158,121 @@ export const confluenceAPI = {
     const response = await api.post('/confluence/import', config);
     return response.data;
   },
+
+  // Add pages to sync list
+  async addPagesToSync(
+    credentials: {
+      url: string;
+      username?: string;
+      api_token: string;
+      auth_type: string;
+    },
+    webUrls: string[]
+  ): Promise<{
+    success: boolean;
+    message: string;
+    synced_pages?: any[];
+    errors?: string[];
+  }> {
+    const response = await api.post('/confluence/sync/add', {
+      credentials,
+      web_urls: webUrls
+    });
+    return response.data;
+  },
+
+  // List sync pages
+  async listSyncPages(): Promise<{
+    success: boolean;
+    pages: any[];
+    count: number;
+  }> {
+    const response = await api.get('/confluence/sync/list');
+    return response.data;
+  },
+
+  // Run sync for pages
+  async runSync(
+    credentials: {
+      url: string;
+      username?: string;
+      api_token: string;
+      auth_type: string;
+    },
+    pageIds?: string[]
+  ): Promise<{
+    success: boolean;
+    message: string;
+    synced_count: number;
+    errors?: string[];
+  }> {
+    const response = await api.post('/confluence/sync/run', {
+      credentials,
+      page_ids: pageIds
+    });
+    return response.data;
+  },
+
+  // Remove page from sync list
+  async removeFromSync(pageId: string): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    const response = await api.delete(`/confluence/sync/${pageId}`);
+    return response.data;
+  },
+
+  // Temporarily ingest a page
+  async ingestPageTemporarily(
+    credentials: {
+      url: string;
+      username?: string;
+      api_token: string;
+      auth_type: string;
+    },
+    webUrl: string
+  ): Promise<{
+    success: boolean;
+    message: string;
+    page_id: string;
+    title: string;
+    content_preview: string;
+    expires_at: string;
+  }> {
+    const response = await api.post('/confluence/ingest/temporary', {
+      credentials,
+      web_url: webUrl
+    });
+    return response.data;
+  },
+
+  // List temporary pages
+  async listTemporaryPages(): Promise<{
+    success: boolean;
+    pages: any[];
+    count: number;
+  }> {
+    const response = await api.get('/confluence/ingest/temporary');
+    return response.data;
+  },
+
+  // Get temporary page content
+  async getTemporaryPage(pageId: string): Promise<{
+    success: boolean;
+    page: any;
+  }> {
+    const response = await api.get(`/confluence/ingest/temporary/${pageId}`);
+    return response.data;
+  },
+
+  // Remove temporary page
+  async removeTemporaryPage(pageId: string): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    const response = await api.delete(`/confluence/ingest/temporary/${pageId}`);
+    return response.data;
+  },
 };
 
 export default api; 

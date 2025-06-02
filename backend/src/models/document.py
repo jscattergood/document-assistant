@@ -89,9 +89,10 @@ class ChatResponse(BaseModel):
 class ConfluenceConfig(BaseModel):
     """Confluence configuration model."""
     url: str = Field(..., description="Confluence instance URL")
-    username: str = Field(..., description="Confluence username")
-    api_token: str = Field(..., description="Confluence API token")
+    username: Optional[str] = Field(None, description="Confluence username (not required for PAT)")
+    api_token: str = Field(..., description="Confluence API token or PAT")
     space_key: Optional[str] = Field(None, description="Default space key")
+    auth_type: str = Field(default="pat", description="Authentication type: 'pat' or 'basic'")
 
 class ConfluencePage(BaseModel):
     """Confluence page model."""
@@ -101,4 +102,40 @@ class ConfluencePage(BaseModel):
     space_key: str
     url: str
     created_at: datetime
-    updated_at: datetime 
+    updated_at: datetime
+
+class ConfluencePageSync(BaseModel):
+    """Model for Confluence page synchronization."""
+    id: Optional[str] = Field(None, description="Sync record ID")
+    web_url: str = Field(..., description="Confluence page web URL")
+    page_id: str = Field(..., description="Confluence page ID extracted from URL")
+    space_key: str = Field(..., description="Confluence space key")
+    title: str = Field(..., description="Page title")
+    api_url: str = Field(..., description="Generated API URL")
+    last_synced: Optional[datetime] = Field(None, description="Last sync timestamp")
+    sync_enabled: bool = Field(default=True, description="Whether sync is enabled")
+    created_at: datetime = Field(default_factory=datetime.now)
+
+class ConfluencePageSyncRequest(BaseModel):
+    """Request model for adding pages to sync list."""
+    web_urls: List[str] = Field(..., description="List of Confluence page web URLs")
+
+class ConfluencePageSyncResponse(BaseModel):
+    """Response model for page sync operations."""
+    success: bool = True
+    message: str = "Operation successful"
+    synced_pages: Optional[List[ConfluencePageSync]] = None
+    errors: Optional[List[str]] = None
+
+class ConfluenceTemporaryIngestRequest(BaseModel):
+    """Request model for temporary page ingestion."""
+    web_url: str = Field(..., description="Confluence page web URL")
+
+class ConfluenceTemporaryIngestResponse(BaseModel):
+    """Response model for temporary page ingestion."""
+    success: bool = True
+    message: str = "Page ingested successfully"
+    page_id: str = Field(..., description="Temporary page ID for chat")
+    title: str = Field(..., description="Page title")
+    content_preview: str = Field(..., description="Preview of page content")
+    expires_at: datetime = Field(..., description="When temporary ingestion expires") 
