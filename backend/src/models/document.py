@@ -6,6 +6,14 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 from enum import Enum
 
+# Forward declaration for credentials model
+class ConfluenceCredentials(BaseModel):
+    """Confluence credentials for authentication."""
+    url: str
+    username: Optional[str] = None
+    api_token: str
+    auth_type: str = "pat"
+
 class DocumentType(str, Enum):
     """Supported document types."""
     PDF = "pdf"
@@ -118,6 +126,7 @@ class ConfluencePageSync(BaseModel):
 
 class ConfluencePageSyncRequest(BaseModel):
     """Request model for adding pages to sync list."""
+    credentials: ConfluenceCredentials = Field(..., description="Confluence credentials for authentication")
     web_urls: List[str] = Field(..., description="List of Confluence page web URLs")
 
 class ConfluencePageSyncResponse(BaseModel):
@@ -129,6 +138,7 @@ class ConfluencePageSyncResponse(BaseModel):
 
 class ConfluenceTemporaryIngestRequest(BaseModel):
     """Request model for temporary page ingestion."""
+    credentials: ConfluenceCredentials = Field(..., description="Confluence credentials for authentication")
     web_url: str = Field(..., description="Confluence page web URL")
 
 class ConfluenceTemporaryIngestResponse(BaseModel):

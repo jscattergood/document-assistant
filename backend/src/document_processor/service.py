@@ -442,6 +442,59 @@ class DocumentService:
             print(f"Error deleting document {doc_id}: {e}")
             return False
     
+    async def add_confluence_document(self, llama_doc: LlamaDocument, doc_id: str) -> Document:
+        """Add a Confluence document to the main document service."""
+        try:
+            # Create a Document object for tracking
+            document = Document(
+                id=doc_id,
+                title=llama_doc.metadata.get('title', 'Untitled Confluence Page'),
+                type=DocumentType.CONFLUENCE,
+                content=llama_doc.text,
+                status=DocumentStatus.PROCESSING,
+                metadata=llama_doc.metadata,
+                file_path=None,  # Confluence pages don't have files
+                size_bytes=len(llama_doc.text.encode('utf-8')) if llama_doc.text else 0
+            )
+            
+            # Add to the vector index
+            if self.index is not None:
+                # Insert the document into the index
+                self.index.insert(llama_doc)
+                
+                # Update query and chat engines
+                self.query_engine = self.index.as_query_engine(
+                    similarity_top_k=3,
+                    response_mode="tree_summarize"
+                )
+                
+                self.chat_engine = self.index.as_chat_engine(
+                    chat_mode="condense_question",
+                    verbose=True
+                )
+            
+            # Mark as indexed
+            document.status = DocumentStatus.INDEXED
+            
+            # Store in documents dictionary
+            self.documents[doc_id] = document
+            
+            print(f"Successfully added Confluence document: {document.title}")
+            return document
+            
+        except Exception as e:
+            print(f"Error adding Confluence document {doc_id}: {e}")
+            # Create error document
+            document = Document(
+                id=doc_id,
+                title=llama_doc.metadata.get('title', 'Untitled Confluence Page'),
+                type=DocumentType.CONFLUENCE,
+                status=DocumentStatus.ERROR,
+                metadata=llama_doc.metadata
+            )
+            self.documents[doc_id] = document
+            raise
+    
     async def cleanup(self):
         """Cleanup resources."""
         if self.chroma_client:

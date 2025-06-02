@@ -21,6 +21,9 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  TextField,
+  Divider,
+  Link as MuiLink,
 } from '@mui/material';
 import {
   CloudUpload,
@@ -31,9 +34,10 @@ import {
   PictureAsPdf,
   Article,
   Code,
+  Link,
 } from '@mui/icons-material';
 import { useDropzone } from 'react-dropzone';
-import { documentAPI } from '../services/api';
+import { documentAPI, confluenceAPI } from '../services/api';
 import type { Document } from '../services/api';
 import toast from 'react-hot-toast';
 
@@ -42,6 +46,8 @@ const DocumentsPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ [key: string]: number }>({});
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; document?: Document }>({ open: false });
+  const [confluenceUrl, setConfluenceUrl] = useState('');
+  const [uploadingFromUrl, setUploadingFromUrl] = useState(false);
 
   // Fetch documents on component mount
   useEffect(() => {
@@ -123,6 +129,61 @@ const DocumentsPage: React.FC = () => {
     setDeleteDialog({ open: false });
   };
 
+  const handleConfluenceUrlUpload = async () => {
+    if (!confluenceUrl.trim()) {
+      toast.error('Please enter a Confluence page URL');
+      return;
+    }
+
+    // Check if we have saved Confluence credentials
+    const savedConfig = localStorage.getItem('confluence_config');
+    if (!savedConfig) {
+      toast.error('Please configure Confluence credentials first in the Confluence section');
+      return;
+    }
+
+    const parsedConfig = JSON.parse(savedConfig);
+    if (!parsedConfig.url || !parsedConfig.token) {
+      toast.error('Incomplete Confluence credentials. Please reconfigure in the Confluence section');
+      return;
+    }
+
+    setUploadingFromUrl(true);
+    try {
+      const credentials = {
+        url: parsedConfig.url,
+        username: parsedConfig.username,
+        api_token: parsedConfig.token,
+        auth_type: parsedConfig.auth_type,
+      };
+
+      // Use the new import-as-document endpoint to create a permanent document
+      const response = await confluenceAPI.importPageAsDocument(credentials, confluenceUrl);
+      
+      if (response.success) {
+        toast.success(`Successfully imported Confluence page: ${response.title}`);
+        setConfluenceUrl('');
+        fetchDocuments(); // Refresh the document list
+      } else {
+        // Show more specific error messages
+        let errorMessage = response.message || 'Failed to import Confluence page';
+        if (errorMessage.includes('No space with key')) {
+          errorMessage = `Space not found or no access. Please check the space key in the URL and ensure your Confluence credentials have access to this space.`;
+        } else if (errorMessage.includes('not found')) {
+          errorMessage = `Page not found. Please check the URL and ensure the page exists and is accessible.`;
+        } else if (errorMessage.includes('unauthorized') || errorMessage.includes('authentication')) {
+          errorMessage = `Authentication failed. Please check your Confluence credentials in the Confluence settings.`;
+        }
+        toast.error(errorMessage);
+      }
+    } catch (error) {
+      console.error('Error importing Confluence page:', error);
+      toast.error('Error importing Confluence page');
+    } finally {
+      setUploadingFromUrl(false);
+    }
+  };
+
   const onDrop = useCallback((acceptedFiles: File[]) => {
     handleFileUpload(acceptedFiles);
   }, []);
@@ -186,6 +247,11 @@ const DocumentsPage: React.FC = () => {
 
       {/* Upload Section */}
       <Paper elevation={2} sx={{ p: 4, mb: 4 }}>
+        <Typography variant="h4" component="h2" sx={{ mb: 3 }}>
+          Upload Documents
+        </Typography>
+        
+        {/* File Upload */}
         <Box
           {...getRootProps()}
           sx={{
@@ -205,8 +271,8 @@ const DocumentsPage: React.FC = () => {
         >
           <input {...getInputProps()} />
           <CloudUpload sx={{ fontSize: 64, color: 'primary.main', mb: 2 }} />
-          <Typography variant="h4" component="h2" sx={{ mb: 2 }}>
-            {isDragActive ? 'Drop files here' : 'Upload Documents'}
+          <Typography variant="h5" component="h3" sx={{ mb: 2 }}>
+            {isDragActive ? 'Drop files here' : 'Upload Files'}
           </Typography>
           <Typography variant="body1" color="text.secondary" sx={{ mb: 4, maxWidth: 600, mx: 'auto' }}>
             Drag and drop files here, or click to browse. Supported formats: PDF, DOCX, TXT, MD, HTML
@@ -216,23 +282,65 @@ const DocumentsPage: React.FC = () => {
           </Button>
         </Box>
 
-        {/* Upload Progress */}
-        {Object.entries(uploadProgress).length > 0 && (
-          <Box sx={{ mt: 4 }}>
-            <Typography variant="h6" sx={{ mb: 2 }}>
-              Uploading...
-            </Typography>
-            {Object.entries(uploadProgress).map(([fileId, progress]) => (
-              <Box key={fileId} sx={{ mb: 2 }}>
-                <Typography variant="body2" sx={{ mb: 1 }}>
-                  {fileId.split('-')[0]} - {progress}%
-                </Typography>
-                <LinearProgress variant="determinate" value={progress} />
-              </Box>
-            ))}
+        <Divider sx={{ my: 4 }}>
+          <Typography variant="body2" color="text.secondary">
+            OR
+          </Typography>
+        </Divider>
+
+        {/* Confluence URL Upload */}
+        <Box sx={{ textAlign: 'center' }}>
+          <Box sx={{ mb: 2 }}>
+            <Link sx={{ fontSize: 48, color: 'primary.main' }} />
           </Box>
-        )}
+          <Typography variant="h5" component="h3" sx={{ mb: 2 }}>
+            Import from Confluence
+          </Typography>
+          <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
+            Import a Confluence page directly by providing its URL
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3, fontStyle: 'italic' }}>
+            Note: Confluence credentials must be configured first in the Confluence section
+          </Typography>
+          
+          <Box sx={{ display: 'flex', gap: 2, maxWidth: 800, mx: 'auto' }}>
+            <TextField
+              fullWidth
+              label="Confluence Page URL"
+              placeholder="https://wiki.autodesk.com/pages/viewpage.action?pageId=123456"
+              value={confluenceUrl}
+              onChange={(e) => setConfluenceUrl(e.target.value)}
+              variant="outlined"
+              disabled={uploadingFromUrl}
+            />
+            <Button
+              variant="contained"
+              onClick={handleConfluenceUrlUpload}
+              disabled={!confluenceUrl.trim() || uploadingFromUrl}
+              sx={{ minWidth: 120 }}
+            >
+              {uploadingFromUrl ? 'Importing...' : 'Import'}
+            </Button>
+          </Box>
+        </Box>
       </Paper>
+
+      {/* Upload Progress */}
+      {Object.entries(uploadProgress).length > 0 && (
+        <Box sx={{ mt: 4 }}>
+          <Typography variant="h6" sx={{ mb: 2 }}>
+            Uploading...
+          </Typography>
+          {Object.entries(uploadProgress).map(([fileId, progress]) => (
+            <Box key={fileId} sx={{ mb: 2 }}>
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                {fileId.split('-')[0]} - {progress}%
+              </Typography>
+              <LinearProgress variant="determinate" value={progress} />
+            </Box>
+          ))}
+        </Box>
+      )}
 
       {/* Document List */}
       <Paper elevation={2} sx={{ p: 4 }}>

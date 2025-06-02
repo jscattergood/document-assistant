@@ -67,18 +67,6 @@ interface SyncPage {
   created_at: string;
 }
 
-interface TemporaryPage {
-  page_id: string;
-  original_page_id: string;
-  title: string;
-  content: string;
-  space_key: string;
-  web_url: string;
-  api_url: string;
-  expires_at: string;
-  created_at: string;
-}
-
 interface TabPanelProps {
   children?: React.ReactNode;
   index: number;
@@ -129,18 +117,10 @@ const ConfluencePage: React.FC = () => {
   const [syncing, setSyncing] = useState(false);
   const [addUrlsDialog, setAddUrlsDialog] = useState(false);
   const [urlsToAdd, setUrlsToAdd] = useState('');
-  
-  // Temporary pages state
-  const [temporaryPages, setTemporaryPages] = useState<TemporaryPage[]>([]);
-  const [loadingTemporaryPages, setLoadingTemporaryPages] = useState(false);
-  const [tempIngestDialog, setTempIngestDialog] = useState(false);
-  const [tempUrlToIngest, setTempUrlToIngest] = useState('');
-  const [ingesting, setIngesting] = useState(false);
 
   useEffect(() => {
     if (connectionStatus.status === 'connected') {
       loadSyncPages();
-      loadTemporaryPages();
     }
   }, [connectionStatus.status]);
 
@@ -166,6 +146,16 @@ const ConfluencePage: React.FC = () => {
         }));
         
         setConfigLoaded(true);
+        
+        // If we have complete credentials, enable tabs even without testing
+        const hasValidCredentials = parsedConfig.url && parsedConfig.token;
+        if (hasValidCredentials) {
+          setConnectionStatus({
+            status: 'connected', // Assume valid since we have saved credentials
+            message: 'Using saved credentials (test connection to verify)',
+          });
+        }
+        
         // Show that configuration was loaded
         console.log('Loaded saved Confluence configuration from localStorage');
       }
@@ -185,20 +175,6 @@ const ConfluencePage: React.FC = () => {
       console.error('Error loading sync pages:', error);
     } finally {
       setLoadingSyncPages(false);
-    }
-  };
-
-  const loadTemporaryPages = async () => {
-    setLoadingTemporaryPages(true);
-    try {
-      const result = await confluenceAPI.listTemporaryPages();
-      if (result.success) {
-        setTemporaryPages(result.pages);
-      }
-    } catch (error) {
-      console.error('Error loading temporary pages:', error);
-    } finally {
-      setLoadingTemporaryPages(false);
     }
   };
 
@@ -405,46 +381,6 @@ const ConfluencePage: React.FC = () => {
     }
   };
 
-  const handleTempIngest = async () => {
-    if (!tempUrlToIngest.trim()) return;
-    
-    setIngesting(true);
-    try {
-      const credentials = {
-        url: config.url,
-        username: config.username,
-        api_token: config.token,
-        auth_type: config.auth_type,
-      };
-      
-      const result = await confluenceAPI.ingestPageTemporarily(credentials, tempUrlToIngest);
-      if (result.success) {
-        toast.success(result.message);
-        setTempUrlToIngest('');
-        setTempIngestDialog(false);
-        loadTemporaryPages();
-      } else {
-        toast.error(result.message);
-      }
-    } catch (error) {
-      toast.error('Failed to ingest page temporarily');
-    } finally {
-      setIngesting(false);
-    }
-  };
-
-  const handleRemoveTemporary = async (pageId: string) => {
-    try {
-      const result = await confluenceAPI.removeTemporaryPage(pageId);
-      if (result.success) {
-        toast.success(result.message);
-        loadTemporaryPages();
-      }
-    } catch (error) {
-      toast.error('Failed to remove temporary page');
-    }
-  };
-
   const getStatusIcon = () => {
     switch (connectionStatus.status) {
       case 'connected':
@@ -507,7 +443,6 @@ const ConfluencePage: React.FC = () => {
         >
           <Tab label="Connection" icon={<Settings />} />
           <Tab label="Page Sync" icon={<Sync />} disabled={connectionStatus.status !== 'connected'} />
-          <Tab label="Temporary Ingest" icon={<Schedule />} disabled={connectionStatus.status !== 'connected'} />
         </Tabs>
 
         <TabPanel value={tabValue} index={0}>
@@ -695,14 +630,6 @@ const ConfluencePage: React.FC = () => {
                       variant="outlined" 
                       fullWidth 
                       disabled={connectionStatus.status !== 'connected'}
-                      onClick={() => setTabValue(2)}
-                    >
-                      Temporary Ingest
-                    </Button>
-                    <Button 
-                      variant="outlined" 
-                      fullWidth 
-                      disabled={connectionStatus.status !== 'connected'}
                     >
                       View Spaces
                     </Button>
@@ -824,103 +751,6 @@ const ConfluencePage: React.FC = () => {
             )}
           </Box>
         </TabPanel>
-
-        <TabPanel value={tabValue} index={2}>
-          <Box sx={{ mb: 4 }}>
-            <Typography variant="h4" component="h2" sx={{ mb: 2 }}>
-              Temporary Page Ingest
-            </Typography>
-            <Typography color="text.secondary" sx={{ mb: 4 }}>
-              Temporarily ingest a Confluence page for use in chat conversations. These pages expire after 2 hours and are not permanently stored.
-            </Typography>
-
-            <Box sx={{ display: 'flex', gap: 2, mb: 4 }}>
-              <Button
-                variant="contained"
-                startIcon={<Add />}
-                onClick={() => setTempIngestDialog(true)}
-              >
-                Ingest Page
-              </Button>
-              <Button
-                variant="outlined"
-                startIcon={<ContentCopy />}
-                onClick={loadTemporaryPages}
-                disabled={loadingTemporaryPages}
-              >
-                Refresh
-              </Button>
-            </Box>
-
-            {loadingTemporaryPages ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-                <CircularProgress />
-              </Box>
-            ) : temporaryPages.length === 0 ? (
-              <Alert severity="info">
-                No temporary pages active. Click "Ingest Page" to temporarily load a Confluence page for chat.
-              </Alert>
-            ) : (
-              <Paper variant="outlined">
-                <List>
-                  {temporaryPages.map((page, index) => (
-                    <React.Fragment key={page.page_id}>
-                      <ListItem>
-                        <ListItemText
-                          primary={page.title}
-                          secondary={
-                            <Box>
-                              <Typography variant="body2" color="text.secondary">
-                                Space: {page.space_key} • Original ID: {page.original_page_id}
-                              </Typography>
-                              <Typography variant="body2" color="text.secondary">
-                                Created: {formatDate(page.created_at)} • Expires: {formatDate(page.expires_at)}
-                              </Typography>
-                              <Box sx={{ mt: 1 }}>
-                                <Chip
-                                  size="small"
-                                  label="Temporary"
-                                  color="warning"
-                                  sx={{ mr: 1 }}
-                                />
-                                <Chip
-                                  size="small"
-                                  label="Available for Chat"
-                                  color="info"
-                                  variant="outlined"
-                                />
-                              </Box>
-                            </Box>
-                          }
-                        />
-                        <ListItemSecondaryAction>
-                          <Box sx={{ display: 'flex', gap: 1 }}>
-                            <IconButton
-                              size="small"
-                              onClick={() => window.open(page.web_url, '_blank')}
-                              title="Open in Confluence"
-                            >
-                              <Link />
-                            </IconButton>
-                            <IconButton
-                              size="small"
-                              onClick={() => handleRemoveTemporary(page.page_id)}
-                              color="error"
-                              title="Remove temporary page"
-                            >
-                              <Delete />
-                            </IconButton>
-                          </Box>
-                        </ListItemSecondaryAction>
-                      </ListItem>
-                      {index < temporaryPages.length - 1 && <Divider />}
-                    </React.Fragment>
-                  ))}
-                </List>
-              </Paper>
-            )}
-          </Box>
-        </TabPanel>
       </Paper>
 
       {/* Add URLs Dialog */}
@@ -948,34 +778,6 @@ const ConfluencePage: React.FC = () => {
           <Button onClick={() => setAddUrlsDialog(false)}>Cancel</Button>
           <Button onClick={handleAddUrls} variant="contained" disabled={!urlsToAdd.trim()}>
             Add Pages
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Temporary Ingest Dialog */}
-      <Dialog open={tempIngestDialog} onClose={() => setTempIngestDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Temporarily Ingest Page</DialogTitle>
-        <DialogContent>
-          <Alert severity="info" sx={{ mb: 3 }}>
-            This page will be available for chat conversations for 2 hours and then automatically removed.
-          </Alert>
-          <TextField
-            fullWidth
-            label="Confluence Page URL"
-            placeholder="https://wiki.autodesk.com/spaces/viewspace.action?key=~scattej&pageId=123456"
-            value={tempUrlToIngest}
-            onChange={(e) => setTempUrlToIngest(e.target.value)}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setTempIngestDialog(false)}>Cancel</Button>
-          <Button 
-            onClick={handleTempIngest} 
-            variant="contained" 
-            disabled={!tempUrlToIngest.trim() || ingesting}
-            startIcon={ingesting ? <CircularProgress size={20} /> : undefined}
-          >
-            {ingesting ? 'Ingesting...' : 'Ingest Page'}
           </Button>
         </DialogActions>
       </Dialog>

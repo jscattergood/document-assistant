@@ -8,6 +8,7 @@ import re
 import uuid
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs
+import time
 
 from ..models.document import (
     ConfluenceConfig, ConfluencePage, ConfluencePageSync, 
@@ -404,6 +405,9 @@ def parse_confluence_url(web_url: str) -> dict:
     """Parse Confluence web URL to extract page ID, space key, and generate API URL."""
     try:
         parsed = urlparse(web_url)
+        page_id = None
+        space_key = None
+        page_title = None
         
         # Handle different Confluence URL formats
         if 'pageId=' in web_url:
@@ -411,9 +415,20 @@ def parse_confluence_url(web_url: str) -> dict:
             query_params = parse_qs(parsed.query)
             page_id = query_params.get('pageId', [None])[0]
             space_key = query_params.get('key', [None])[0]
+        elif '/display/' in web_url:
+            # Format: https://wiki.autodesk.com/display/SPACE/Page+Title
+            path_parts = parsed.path.split('/')
+            if 'display' in path_parts:
+                display_index = path_parts.index('display')
+                if display_index + 1 < len(path_parts):
+                    space_key = path_parts[display_index + 1]
+                if display_index + 2 < len(path_parts):
+                    page_title = path_parts[display_index + 2]
+                    # URL decode the page title
+                    from urllib.parse import unquote
+                    page_title = unquote(page_title).replace('+', ' ')
         elif '/pages/' in web_url:
-            # Format: https://wiki.autodesk.com/display/SPACE/Page+Title or 
-            # https://wiki.autodesk.com/spaces/SPACE/pages/123456/Page+Title
+            # Format: https://wiki.autodesk.com/spaces/SPACE/pages/123456/Page+Title
             path_parts = parsed.path.split('/')
             if 'pages' in path_parts:
                 page_index = path_parts.index('pages')
@@ -424,12 +439,6 @@ def parse_confluence_url(web_url: str) -> dict:
                         space_index = path_parts.index('spaces')
                         if space_index + 1 < len(path_parts):
                             space_key = path_parts[space_index + 1]
-                    elif 'display' in path_parts:
-                        display_index = path_parts.index('display')
-                        if display_index + 1 < len(path_parts):
-                            space_key = path_parts[display_index + 1]
-            else:
-                raise ValueError("Could not extract page ID from URL")
         elif '/x/' in web_url:
             # Format: https://wiki.autodesk.com/x/ABC123 (short URLs)
             path_parts = parsed.path.split('/')
@@ -441,52 +450,115 @@ def parse_confluence_url(web_url: str) -> dict:
         else:
             raise ValueError("Unrecognized Confluence URL format")
         
-        if not page_id:
-            raise ValueError("Could not extract page ID from URL")
-        
-        # Generate API URL
+        # Generate API URL base
         base_url = f"{parsed.scheme}://{parsed.netloc}"
         if 'api.' in parsed.netloc:
             api_base = base_url
         else:
             api_base = base_url.replace('wiki.', 'api.wiki.')
         
-        api_url = f"{api_base}/rest/api/content/{page_id}"
-        
         return {
             "page_id": page_id,
             "space_key": space_key,
-            "api_url": api_url,
-            "base_url": base_url
+            "page_title": page_title,
+            "api_base": api_base,
+            "base_url": base_url,
+            "web_url": web_url
         }
         
     except Exception as e:
         raise ValueError(f"Error parsing Confluence URL: {str(e)}")
 
-async def fetch_confluence_page_info(api_url: str, auth_headers: dict) -> dict:
-    """Fetch page information from Confluence API."""
+async def resolve_page_by_title(api_base: str, space_key: str, page_title: str, auth_headers: dict) -> dict:
+    """Resolve a page title to page ID and API URL."""
     import requests
     
     try:
+        # Search for the page by title and space
+        search_url = f"{api_base}/rest/api/content"
+        params = {
+            'spaceKey': space_key,
+            'title': page_title,
+            'expand': 'space,body.storage,version'
+        }
+        
         response = requests.get(
-            api_url,
+            search_url,
             headers=auth_headers,
-            params={'expand': 'space,body.storage,version'},
+            params=params,
             timeout=10
         )
         
         if response.status_code == 200:
-            page_data = response.json()
-            return {
-                "title": page_data.get('title', 'Unknown Title'),
-                "space_key": page_data.get('space', {}).get('key', 'Unknown'),
-                "content": page_data.get('body', {}).get('storage', {}).get('value', ''),
-                "version": page_data.get('version', {}).get('number', 1),
-                "created": page_data.get('history', {}).get('createdDate'),
-                "updated": page_data.get('version', {}).get('when')
-            }
+            data = response.json()
+            results = data.get('results', [])
+            
+            if results:
+                page = results[0]  # Take the first match
+                page_id = page.get('id')
+                api_url = f"{api_base}/rest/api/content/{page_id}"
+                
+                return {
+                    "page_id": page_id,
+                    "api_url": api_url,
+                    "title": page.get('title', 'Unknown Title'),
+                    "space_key": page.get('space', {}).get('key', 'Unknown'),
+                    "content": page.get('body', {}).get('storage', {}).get('value', ''),
+                    "version": page.get('version', {}).get('number', 1),
+                    "created": page.get('history', {}).get('createdDate'),
+                    "updated": page.get('version', {}).get('when')
+                }
+            else:
+                raise Exception(f"Page '{page_title}' not found in space '{space_key}'")
         else:
-            raise Exception(f"API request failed with status {response.status_code}: {response.text}")
+            raise Exception(f"Search request failed with status {response.status_code}: {response.text}")
+            
+    except Exception as e:
+        raise Exception(f"Error resolving page by title: {str(e)}")
+
+async def fetch_confluence_page_info(url_info: dict, auth_headers: dict) -> dict:
+    """Fetch page information from Confluence API."""
+    import requests
+    
+    try:
+        # If we have a page_id, use direct API call
+        if url_info.get('page_id'):
+            api_url = f"{url_info['api_base']}/rest/api/content/{url_info['page_id']}"
+            response = requests.get(
+                api_url,
+                headers=auth_headers,
+                params={'expand': 'space,body.storage,version'},
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                page_data = response.json()
+                return {
+                    "title": page_data.get('title', 'Unknown Title'),
+                    "space_key": page_data.get('space', {}).get('key', 'Unknown'),
+                    "content": page_data.get('body', {}).get('storage', {}).get('value', ''),
+                    "version": page_data.get('version', {}).get('number', 1),
+                    "created": page_data.get('history', {}).get('createdDate'),
+                    "updated": page_data.get('version', {}).get('when'),
+                    "page_id": url_info['page_id'],
+                    "api_url": api_url
+                }
+            else:
+                raise Exception(f"API request failed with status {response.status_code}: {response.text}")
+        
+        # If we have page_title, resolve it first
+        elif url_info.get('page_title') and url_info.get('space_key'):
+            page_info = await resolve_page_by_title(
+                url_info['api_base'], 
+                url_info['space_key'], 
+                url_info['page_title'], 
+                auth_headers
+            )
+            page_info['api_url'] = f"{url_info['api_base']}/rest/api/content/{page_info['page_id']}"
+            return page_info
+        
+        else:
+            raise Exception("Insufficient information to fetch page - need either page_id or (space_key + page_title)")
             
     except Exception as e:
         raise Exception(f"Error fetching page info: {str(e)}")
@@ -507,17 +579,17 @@ async def add_pages_to_sync(request: ConfluencePageSyncRequest):
                 url_info = parse_confluence_url(web_url)
                 
                 # Fetch page information
-                page_info = await fetch_confluence_page_info(url_info['api_url'], auth_headers)
+                page_info = await fetch_confluence_page_info(url_info, auth_headers)
                 
                 # Create sync record
                 sync_id = str(uuid.uuid4())
                 sync_page = ConfluencePageSync(
                     id=sync_id,
                     web_url=web_url,
-                    page_id=url_info['page_id'],
+                    page_id=page_info['page_id'],
                     space_key=page_info['space_key'],
                     title=page_info['title'],
-                    api_url=url_info['api_url']
+                    api_url=page_info['api_url']
                 )
                 
                 # Store in memory (in production, save to database)
@@ -577,29 +649,50 @@ async def run_sync(
         
         for sync_page in pages_to_sync:
             try:
-                # Fetch latest page content with proper auth
-                page_info = await fetch_confluence_page_info(sync_page.api_url, auth_headers)
+                # Create URL info for the sync page
+                url_info = {
+                    'page_id': sync_page.page_id,
+                    'space_key': sync_page.space_key,
+                    'api_base': sync_page.api_url.split('/rest/api/content/')[0],
+                    'web_url': sync_page.web_url
+                }
                 
-                # Create document for the service
+                # Fetch latest page content with proper auth
+                page_info = await fetch_confluence_page_info(url_info, auth_headers)
+                
+                # Create document for the document service
                 from llama_index.core import Document as LlamaDocument
                 
+                # Convert HTML content to plain text for better indexing
+                content = page_info['content']
+                if content:
+                    from bs4 import BeautifulSoup
+                    soup = BeautifulSoup(content, 'html.parser')
+                    plain_text = soup.get_text(separator='\n', strip=True)
+                else:
+                    plain_text = ""
+                
                 doc = LlamaDocument(
-                    text=page_info['content'],
+                    text=plain_text,
                     metadata={
                         'title': page_info['title'],
                         'source': 'confluence',
-                        'page_id': sync_page.page_id,
+                        'page_id': page_info['page_id'],
                         'space_key': page_info['space_key'],
                         'web_url': sync_page.web_url,
-                        'api_url': sync_page.api_url,
-                        'sync_id': sync_page.id
+                        'api_url': page_info['api_url'],
+                        'sync_id': sync_page.id,
+                        'document_type': 'confluence',
+                        'created_at': page_info.get('created'),
+                        'updated_at': page_info.get('updated')
                     }
                 )
                 
-                # Process document through service
+                # Process document through the main document service
                 doc_id = f"confluence_sync_{sync_page.id}"
-                # Note: You may need to adapt the document service to handle this
-                # For now, we'll simulate successful processing
+                
+                # Add the document to the main service so it's available for chat
+                await service.add_confluence_document(doc, doc_id)
                 
                 # Update sync timestamp
                 sync_page.last_synced = datetime.now()
@@ -649,7 +742,7 @@ async def ingest_page_temporarily(
         
         # Parse URL and fetch page
         url_info = parse_confluence_url(request.web_url)
-        page_info = await fetch_confluence_page_info(url_info['api_url'], auth_headers)
+        page_info = await fetch_confluence_page_info(url_info, auth_headers)
         
         # Create temporary page ID
         temp_page_id = f"temp_confluence_{uuid.uuid4()}"
@@ -668,12 +761,48 @@ async def ingest_page_temporarily(
             "created_at": datetime.now()
         }
         
+        # Add to main document service for chat functionality
+        try:
+            from llama_index.core import Document as LlamaDocument
+            
+            # Convert HTML content to plain text
+            content = page_info['content']
+            if content:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(content, 'html.parser')
+                plain_text = soup.get_text(separator='\n', strip=True)
+            else:
+                plain_text = ""
+            
+            doc = LlamaDocument(
+                text=plain_text,
+                metadata={
+                    'title': page_info['title'],
+                    'source': 'confluence_temporary',
+                    'page_id': url_info['page_id'],
+                    'space_key': page_info['space_key'],
+                    'web_url': request.web_url,
+                    'api_url': url_info['api_url'],
+                    'temp_page_id': temp_page_id,
+                    'document_type': 'confluence_temporary',
+                    'expires_at': expires_at.isoformat(),
+                    'created_at': page_info.get('created'),
+                    'updated_at': page_info.get('updated')
+                }
+            )
+            
+            # Add to document service with temporary ID
+            await service.add_confluence_document(doc, temp_page_id)
+            
+        except Exception as e:
+            print(f"Warning: Failed to add temporary page to document service: {e}")
+        
         # Generate content preview (first 200 characters)
         content_preview = page_info['content'][:200] + "..." if len(page_info['content']) > 200 else page_info['content']
         
         return ConfluenceTemporaryIngestResponse(
             success=True,
-            message=f"Temporarily ingested page '{page_info['title']}'",
+            message=f"Temporarily ingested page '{page_info['title']}' - available for chat for 2 hours",
             page_id=temp_page_id,
             title=page_info['title'],
             content_preview=content_preview,
@@ -684,14 +813,21 @@ async def ingest_page_temporarily(
         raise HTTPException(status_code=500, detail=f"Error ingesting page temporarily: {str(e)}")
 
 @router.get("/ingest/temporary")
-async def list_temporary_pages():
+async def list_temporary_pages(service: DocumentService = Depends(get_document_service)):
     """List all temporarily ingested pages."""
     try:
         # Clean up expired pages
         current_time = datetime.now()
         expired_keys = [k for k, v in temporary_pages_storage.items() if v['expires_at'] < current_time]
+        
         for key in expired_keys:
             del temporary_pages_storage[key]
+            # Also remove from document service
+            try:
+                await service.delete_document(key)
+                print(f"Cleaned up expired temporary page from document service: {key}")
+            except Exception as e:
+                print(f"Warning: Failed to clean up expired page from document service: {e}")
         
         # Return active pages
         active_pages = list(temporary_pages_storage.values())
@@ -728,11 +864,22 @@ async def get_temporary_page(page_id: str):
         raise HTTPException(status_code=500, detail=f"Error retrieving temporary page: {str(e)}")
 
 @router.delete("/ingest/temporary/{page_id}")
-async def remove_temporary_page(page_id: str):
+async def remove_temporary_page(
+    page_id: str,
+    service: DocumentService = Depends(get_document_service)
+):
     """Remove a temporarily ingested page."""
     try:
         if page_id in temporary_pages_storage:
             removed_page = temporary_pages_storage.pop(page_id)
+            
+            # Also remove from document service
+            try:
+                await service.delete_document(page_id)
+                print(f"Removed temporary page from document service: {page_id}")
+            except Exception as e:
+                print(f"Warning: Failed to remove temporary page from document service: {e}")
+            
             return {
                 "success": True,
                 "message": f"Removed temporary page '{removed_page['title']}'"
@@ -742,4 +889,78 @@ async def remove_temporary_page(page_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error removing temporary page: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Error removing temporary page: {str(e)}")
+
+class ConfluencePageImportRequest(BaseModel):
+    """Request to import a Confluence page as a permanent document."""
+    credentials: ConfluenceCredentials
+    web_url: str
+
+class ConfluencePageImportResponse(BaseModel):
+    """Response from importing a Confluence page as a document."""
+    success: bool
+    message: str
+    title: Optional[str] = None
+    page_id: Optional[str] = None
+
+@router.post("/import-as-document", response_model=ConfluencePageImportResponse)
+async def import_confluence_page_as_document(
+    request: ConfluencePageImportRequest,
+    service: DocumentService = Depends(get_document_service)
+):
+    """Import a Confluence page as a permanent document."""
+    try:
+        # Set up authentication headers
+        auth_headers = get_auth_headers(request.credentials)
+        
+        # Parse URL and fetch page
+        url_info = parse_confluence_url(request.web_url)
+        if not url_info:
+            raise HTTPException(status_code=400, detail="Invalid Confluence URL format")
+            
+        page_info = await fetch_confluence_page_info(url_info, auth_headers)
+        
+        # Create permanent document ID using the resolved page_id
+        doc_id = f"confluence_{page_info['page_id']}_{int(time.time())}"
+        
+        # Add to main document service as permanent document
+        from llama_index.core import Document as LlamaDocument
+        
+        # Convert HTML content to plain text
+        content = page_info['content']
+        if content:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(content, 'html.parser')
+            plain_text = soup.get_text(separator='\n', strip=True)
+        else:
+            plain_text = ""
+        
+        doc = LlamaDocument(
+            text=plain_text,
+            metadata={
+                'title': page_info['title'],
+                'source': 'confluence_import',
+                'page_id': page_info['page_id'],  # Use resolved page_id
+                'space_key': page_info['space_key'],
+                'web_url': request.web_url,
+                'api_url': page_info['api_url'],  # Use resolved api_url
+                'document_type': 'confluence',
+                'created_at': page_info.get('created'),
+                'updated_at': page_info.get('updated')
+            }
+        )
+        
+        # Add to document service as permanent document
+        await service.add_confluence_document(doc, doc_id)
+        
+        return ConfluencePageImportResponse(
+            success=True,
+            message=f"Successfully imported '{page_info['title']}' as a document",
+            title=page_info['title'],
+            page_id=doc_id
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error importing Confluence page as document: {str(e)}") 

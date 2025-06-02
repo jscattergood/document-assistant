@@ -21,6 +21,7 @@ export interface Document {
   created_at: string;
   updated_at: string;
   size_bytes?: number;
+  metadata?: Record<string, any>;
 }
 
 export interface DocumentResponse {
@@ -34,6 +35,13 @@ export interface ChatResponse {
   success: boolean;
   response: string;
   message?: string;
+}
+
+export interface ConfluenceCredentials {
+  url: string;
+  username?: string;
+  api_token: string;
+  auth_type: string;
 }
 
 // Document API methods
@@ -271,6 +279,14 @@ export const confluenceAPI = {
     message: string;
   }> {
     const response = await api.delete(`/confluence/ingest/temporary/${pageId}`);
+    return response.data;
+  },
+
+  importPageAsDocument: async (credentials: ConfluenceCredentials, webUrl: string) => {
+    const response = await api.post('/confluence/import-as-document', {
+      credentials,
+      web_url: webUrl
+    });
     return response.data;
   },
 };
