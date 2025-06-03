@@ -222,9 +222,15 @@ class GPT4AllLLM(LLM):
     def _init_model(self):
         try:
             from gpt4all import GPT4All
-            self._model = GPT4All(self.model_name, model_path=self.model_path)
+            # Initialize with larger context window for Llama 3.1
+            self._model = GPT4All(
+                self.model_name, 
+                model_path=self.model_path,
+                n_ctx=32768,  # Set context to 32K tokens (much more reasonable for Llama 3.1)
+                verbose=False
+            )
             self._available = True
-            print(f"Successfully loaded GPT4All model: {self.model_name}")
+            print(f"Successfully loaded GPT4All model: {self.model_name} with 32K context window")
         except Exception as e:
             print(f"Failed to load GPT4All model: {e}")
             self._available = False
@@ -236,7 +242,7 @@ class GPT4AllLLM(LLM):
     @property
     def metadata(self) -> LLMMetadata:
         return LLMMetadata(
-            context_window=4096,  # Increased from 2048 - Llama models typically support 4k+ context
+            context_window=32768,  # Much more reasonable for Llama 3.1 8B (32K tokens)
             num_output=self.default_max_tokens,
             model_name=self.model_name,
         )
@@ -466,12 +472,39 @@ class DocumentService:
                                     type=DocumentType.CONFLUENCE,
                                     content=doc_content.strip(),
                                     file_path=str(file_path),
-                                    status=DocumentStatus.INDEXED,
+                                    status=DocumentStatus.PROCESSING,
                                     size_bytes=file_metadata['size_bytes'],
                                     created_at=datetime.fromtimestamp(file_metadata['created_at']),
                                     updated_at=datetime.fromtimestamp(file_metadata['modified_at']),
                                     metadata=combined_metadata
                                 )
+                                
+                                # CRITICAL FIX: Create LlamaIndex document and insert into vector index
+                                if self.index is not None:
+                                    # Enhance content for better RAG performance
+                                    enhanced_content = self._enhance_document_for_rag(doc_content.strip(), {
+                                        'title': confluence_metadata.get('title', file_path.stem),
+                                        'document_type': 'confluence',
+                                        'filename': file_path.name,
+                                        **combined_metadata
+                                    })
+                                    
+                                    llama_doc = LlamaDocument(
+                                        text=enhanced_content,
+                                        metadata={
+                                            "doc_id": doc_id,
+                                            "title": confluence_metadata.get('title', file_path.stem),
+                                            "type": "confluence",
+                                            "file_path": str(file_path),
+                                            **combined_metadata
+                                        }
+                                    )
+                                    
+                                    self.index.insert(llama_doc)
+                                    print(f"Inserted Confluence document into vector index: {file_path.name}")
+                                
+                                # Update status to indexed
+                                document.status = DocumentStatus.INDEXED
                                 
                                 # Add to documents dictionary
                                 self.documents[doc_id] = document
@@ -526,8 +559,17 @@ class DocumentService:
                 }
             )
             
+            # CRITICAL FIX: Add to the vector index so it's searchable
+            if self.index is not None:
+                self.index.insert(llama_doc)
+                print(f"Inserted document into vector index: {file_path.name}")
+            
             # Add to documents dictionary
             self.documents[doc_id] = document
+            
+            # Update status to indexed
+            document.status = DocumentStatus.INDEXED
+            
             print(f"Loaded document: {document.title} ({doc_type.value}) with {len(combined_metadata)} metadata fields")
             
         except Exception as e:
@@ -932,9 +974,9 @@ class DocumentService:
         # Load app settings for engine configuration
         settings = self._load_app_settings()
         
-        # Initialize query engine with reduced context to fit within 2048 tokens
+        # Initialize query engine with proper context window utilization
         self.query_engine = self.index.as_query_engine(
-            similarity_top_k=2,  # Reduced from 5 to 2 to save tokens
+            similarity_top_k=3,  # Increased back to 3 since we have 32K context window
             response_mode="compact",  # Better for focused document responses
             verbose=True  # Enable verbose logging for debugging
         )
@@ -942,7 +984,7 @@ class DocumentService:
         # Initialize chat engine with RAG-optimized settings
         self.chat_engine = self.index.as_chat_engine(
             chat_mode="context",  # Changed from "condense_question" to "context" for better document focus
-            similarity_top_k=2,  # Reduced from 5 to 2 to save tokens
+            similarity_top_k=3,  # Increased back to 3 since we have 32K context window
             verbose=True,
             system_prompt=f"""You are a document assistant. Answer using only document content. Keep responses under {settings['max_tokens']} tokens."""
         )
@@ -1298,9 +1340,46 @@ CONTENT:
             print(f"DEBUG: Raw response type: {type(response)}")
             print(f"DEBUG: Raw response: {response}")
             
+            # CLEAN UP RESPONSE: Extract only the AI-generated answer
             if hasattr(response, 'response') and response.response:
-                result = response.response.strip()
-                print(f"DEBUG: Extracted response: '{result}'")
+                raw_response = response.response.strip()
+                print(f"DEBUG: Raw response text: '{raw_response}'")
+                
+                # Remove metadata sections that start with separators
+                clean_response = raw_response
+                
+                # Split on common LlamaIndex separators and take only the first part
+                separators = [
+                    "--------------------",
+                    "doc_id:",
+                    "Context information is below",
+                    "Helpful Answer:",
+                    "system:",
+                    "\n\ndoc_id:",
+                    "\n--------------------"
+                ]
+                
+                for separator in separators:
+                    if separator in clean_response:
+                        clean_response = clean_response.split(separator)[0].strip()
+                        break
+                
+                # Additional cleanup: remove any trailing metadata-like content
+                lines = clean_response.split('\n')
+                clean_lines = []
+                
+                for line in lines:
+                    # Skip lines that look like metadata
+                    if any(metadata_indicator in line.lower() for metadata_indicator in [
+                        'doc_id:', 'file_path:', 'title:', 'type:', 'size_bytes:', 'created_at:', 
+                        'modified_at:', 'mime_type:', 'encoding:', 'platform:', 'file_hash:',
+                        'confluence_sync_', 'absolute_path:', 'relative_path:'
+                    ]):
+                        break
+                    clean_lines.append(line)
+                
+                result = '\n'.join(clean_lines).strip()
+                print(f"DEBUG: Cleaned response: '{result}'")
             else:
                 result = str(response).strip() if response else ""
                 print(f"DEBUG: Fallback response: '{result}'")
@@ -1348,9 +1427,46 @@ CONTENT:
             print(f"DEBUG CHAT: Raw response type: {type(response)}")
             print(f"DEBUG CHAT: Raw response: {response}")
             
+            # CLEAN UP RESPONSE: Extract only the AI-generated answer
             if hasattr(response, 'response') and response.response:
-                result = response.response.strip()
-                print(f"DEBUG CHAT: Extracted response: '{result}'")
+                raw_response = response.response.strip()
+                print(f"DEBUG CHAT: Raw response text: '{raw_response}'")
+                
+                # Remove metadata sections that start with separators
+                clean_response = raw_response
+                
+                # Split on common LlamaIndex separators and take only the first part
+                separators = [
+                    "--------------------",
+                    "doc_id:",
+                    "Context information is below",
+                    "Helpful Answer:",
+                    "system:",
+                    "\n\ndoc_id:",
+                    "\n--------------------"
+                ]
+                
+                for separator in separators:
+                    if separator in clean_response:
+                        clean_response = clean_response.split(separator)[0].strip()
+                        break
+                
+                # Additional cleanup: remove any trailing metadata-like content
+                lines = clean_response.split('\n')
+                clean_lines = []
+                
+                for line in lines:
+                    # Skip lines that look like metadata
+                    if any(metadata_indicator in line.lower() for metadata_indicator in [
+                        'doc_id:', 'file_path:', 'title:', 'type:', 'size_bytes:', 'created_at:', 
+                        'modified_at:', 'mime_type:', 'encoding:', 'platform:', 'file_hash:',
+                        'confluence_sync_', 'absolute_path:', 'relative_path:'
+                    ]):
+                        break
+                    clean_lines.append(line)
+                
+                result = '\n'.join(clean_lines).strip()
+                print(f"DEBUG CHAT: Cleaned response: '{result}'")
             else:
                 result = str(response).strip() if response else ""
                 print(f"DEBUG CHAT: Fallback response: '{result}'")
@@ -1486,14 +1602,14 @@ doc_id: {doc_id}
                 
                 # Update query and chat engines
                 self.query_engine = self.index.as_query_engine(
-                    similarity_top_k=2,
+                    similarity_top_k=3,
                     response_mode="compact",
                     verbose=True
                 )
                 
                 self.chat_engine = self.index.as_chat_engine(
                     chat_mode="context",
-                    similarity_top_k=2,
+                    similarity_top_k=3,
                     verbose=True,
                     system_prompt="""You are a document analysis assistant. Your responses must be based ONLY on the provided document context. 
 If information is not available in the documents, clearly state that you cannot find the information in the provided documents. 
@@ -1587,7 +1703,7 @@ Always attribute your responses to the document content and avoid using general 
             if self.index:
                 # Reinitialize query engine
                 self.query_engine = self.index.as_query_engine(
-                    similarity_top_k=2,
+                    similarity_top_k=3,
                     response_mode="compact",
                     verbose=True
                 )
@@ -1595,7 +1711,7 @@ Always attribute your responses to the document content and avoid using general 
                 # Reinitialize chat engine with updated system prompt
                 self.chat_engine = self.index.as_chat_engine(
                     chat_mode="context",
-                    similarity_top_k=2,
+                    similarity_top_k=3,
                     verbose=True,
                     system_prompt=f"""You are a document assistant. Answer using only document content. Keep responses under {settings['max_tokens']} tokens."""
                 )
