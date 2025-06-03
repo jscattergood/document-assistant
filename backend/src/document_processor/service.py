@@ -1070,6 +1070,10 @@ class DocumentService:
             # Clear documents dictionary since embeddings are now invalid
             self.documents.clear()
             
+            # CRITICAL FIX: Reload and re-index existing documents
+            print("Re-indexing existing documents...")
+            await self._load_existing_documents()
+            
             print("Vector store cleared and reinitialized")
             return True
             
@@ -1277,31 +1281,42 @@ CONTENT:
             # Update LLM settings to ensure current max_tokens is used
             self.update_llm_settings()
             
-            # Much more concise prompt to save tokens
-            enhanced_query = f"""You are a document assistant. Answer based ONLY on the provided documents.
-
-Rules:
-- Only use document information
-- If not in documents, say "Not found in documents"
-- Use **bold** for key points
-- Cite sources when possible
-
-Question: {query}
-
-Answer based on documents:"""
+            # DEBUG: Check if documents are in the index
+            print(f"DEBUG: Query received: '{query}'")
+            print(f"DEBUG: Total documents loaded: {len(self.documents)}")
+            for doc_id, doc in self.documents.items():
+                print(f"DEBUG: Document '{doc.title}' (ID: {doc_id}) - Status: {doc.status}")
             
-            # If specific documents are requested, we could filter here
-            # For now, query across all documents
-            response = self.query_engine.query(enhanced_query)
-            response_text = str(response)
+            # MINIMAL TEST: Simplest possible prompt
+            simple_query = f"{query}"
             
-            # Apply markdown formatting if the LLM didn't follow instructions
-            formatted_response = self._format_response_as_markdown(response_text)
-            return formatted_response
+            print(f"DEBUG: Simple query: '{simple_query}'")
+            
+            # Query the index
+            print("DEBUG: Querying index...")
+            response = self.query_engine.query(simple_query)
+            print(f"DEBUG: Raw response type: {type(response)}")
+            print(f"DEBUG: Raw response: {response}")
+            
+            if hasattr(response, 'response') and response.response:
+                result = response.response.strip()
+                print(f"DEBUG: Extracted response: '{result}'")
+            else:
+                result = str(response).strip() if response else ""
+                print(f"DEBUG: Fallback response: '{result}'")
+            
+            if not result or result.lower() in ['', 'empty response', 'empty response.']:
+                print("DEBUG: Empty result - returning fallback message")
+                return "I couldn't find relevant information in the documents to answer your question."
+            
+            return result
             
         except Exception as e:
-            print(f"Error querying documents: {e}")
-            return f"Sorry, I encountered an error while processing your query: {e}"
+            print(f"Error in query_documents: {e}")
+            print(f"ERROR DEBUG: Exception type: {type(e)}")
+            import traceback
+            traceback.print_exc()
+            return f"Error querying documents: {str(e)}"
     
     async def chat_with_documents(self, message: str, conversation_history: Optional[List] = None) -> str:
         """Chat with documents using the chat engine."""
@@ -1312,35 +1327,46 @@ Answer based on documents:"""
             # Update LLM settings to ensure current max_tokens is used
             self.update_llm_settings()
             
+            # DEBUG: Check if documents are in the index
+            print(f"DEBUG CHAT: Message received: '{message}'")
+            print(f"DEBUG CHAT: Total documents loaded: {len(self.documents)}")
+            for doc_id, doc in self.documents.items():
+                print(f"DEBUG CHAT: Document '{doc.title}' (ID: {doc_id}) - Status: {doc.status}")
+            
             # Reset chat engine if new conversation
             if not conversation_history:
                 self.chat_engine.reset()
             
-            # Much more concise prompt to save tokens
-            enhanced_message = f"""You are chatting about documents. Use ONLY document content.
-
-Rules:
-- Answer from documents only
-- Say "Not in documents" if info missing
-- Use **bold** for key points
-- Reference document content
-
-User: {message}
-"""
+            # MINIMAL TEST: Simplest possible message
+            simple_message = f"{message}"
             
-            # Truncate message if needed to prevent context overflow
-            enhanced_message = self._truncate_prompt_if_needed(enhanced_message, max_context_tokens=2048, reserve_tokens=512)
+            print(f"DEBUG CHAT: Simple message: '{simple_message}'")
             
-            response = self.chat_engine.chat(enhanced_message)
-            response_text = str(response)
+            # Chat with the engine
+            print("DEBUG CHAT: Chatting with engine...")
+            response = self.chat_engine.chat(simple_message)
+            print(f"DEBUG CHAT: Raw response type: {type(response)}")
+            print(f"DEBUG CHAT: Raw response: {response}")
             
-            # Apply markdown formatting if the LLM didn't follow instructions
-            formatted_response = self._format_response_as_markdown(response_text)
-            return formatted_response
+            if hasattr(response, 'response') and response.response:
+                result = response.response.strip()
+                print(f"DEBUG CHAT: Extracted response: '{result}'")
+            else:
+                result = str(response).strip() if response else ""
+                print(f"DEBUG CHAT: Fallback response: '{result}'")
+            
+            if not result or result.lower() in ['', 'empty response', 'empty response.']:
+                print("DEBUG CHAT: Empty result - returning fallback message")
+                return "I couldn't find relevant information in the documents to answer your question."
+            
+            return result
             
         except Exception as e:
-            print(f"Error in chat: {e}")
-            return f"Sorry, I encountered an error: {e}"
+            print(f"Error in chat_with_documents: {e}")
+            print(f"ERROR DEBUG CHAT: Exception type: {type(e)}")
+            import traceback
+            traceback.print_exc()
+            return f"Error in chat: {str(e)}"
     
     def get_all_documents(self) -> List[Document]:
         """Get all processed documents."""
