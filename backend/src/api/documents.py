@@ -157,7 +157,46 @@ async def get_document_summary(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating summary: {str(e)}")
 
-@router.get("/{document_id}/content")
+@router.get("/{document_id}/metadata")
+async def get_document_metadata(
+    document_id: str,
+    service: DocumentService = Depends(get_document_service)
+):
+    """Get comprehensive metadata for a specific document."""
+    try:
+        metadata = service.get_document_metadata(document_id)
+        if not metadata:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        return {
+            "success": True,
+            "document_id": document_id,
+            "metadata": metadata
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving metadata: {str(e)}")
+
+@router.get("/metadata/all")
+async def get_all_documents_metadata(
+    service: DocumentService = Depends(get_document_service)
+):
+    """Get metadata for all documents."""
+    try:
+        all_metadata = service.get_all_documents_metadata()
+        
+        return {
+            "success": True,
+            "documents_count": len(all_metadata),
+            "metadata": all_metadata
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving all metadata: {str(e)}")
+
+@router.get("/content")
 async def get_document_content(
     document_id: str,
     service: DocumentService = Depends(get_document_service)

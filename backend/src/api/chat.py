@@ -89,8 +89,15 @@ async def generate_document_content(
         Please provide well-structured, comprehensive content that:
         1. Uses information and patterns from the existing documents
         2. Maintains consistency with the style and tone of the source materials
-        3. Is properly formatted and organized
+        3. Is properly formatted using markdown for better readability
         4. Includes relevant details and examples where appropriate
+        
+        Use markdown formatting:
+        - **Bold** for important points and headings
+        - Bullet points or numbered lists for organization
+        - `Code blocks` for technical terms or examples
+        - ## Headers to organize sections
+        - > Blockquotes for important notes
         
         Request: {request.message}
         """
@@ -200,13 +207,37 @@ async def analyze_documents(
         
         # Create analysis prompt based on type
         if request.analysis_type == "summary":
-            prompt = f"Please provide a comprehensive summary of the following documents: {', '.join(document_titles)}"
+            prompt = f"""Please provide a comprehensive summary of the following documents: {', '.join(document_titles)}
+
+Format your response using markdown:
+- Use **bold** for key points and document names
+- Use bullet points for main findings
+- Use ## headers to organize sections
+- Use > blockquotes for important insights"""
         elif request.analysis_type == "comparison":
-            prompt = f"Please compare and contrast the following documents, highlighting similarities and differences: {', '.join(document_titles)}"
+            prompt = f"""Please compare and contrast the following documents, highlighting similarities and differences: {', '.join(document_titles)}
+
+Format your response using markdown:
+- Use **bold** for document names and key differences
+- Use bullet points or tables for comparisons
+- Use ## headers for "Similarities" and "Differences" sections
+- Use > blockquotes for key insights"""
         elif request.analysis_type == "key_insights":
-            prompt = f"Please extract the key insights and important information from the following documents: {', '.join(document_titles)}"
+            prompt = f"""Please extract the key insights and important information from the following documents: {', '.join(document_titles)}
+
+Format your response using markdown:
+- Use **bold** for key insights and important findings
+- Use numbered lists for prioritized insights
+- Use ## headers to organize by topic or document
+- Use > blockquotes for critical information"""
         else:
-            prompt = f"Please analyze the following documents: {', '.join(document_titles)}"
+            prompt = f"""Please analyze the following documents: {', '.join(document_titles)}
+
+Format your response using markdown:
+- Use **bold** for important findings
+- Use bullet points for organized analysis
+- Use ## headers to structure your analysis
+- Use > blockquotes for key takeaways"""
         
         response = await service.query_documents(
             query=prompt,

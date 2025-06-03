@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from src.api.documents import router as documents_router
 from src.api.chat import router as chat_router
 from src.api.confluence import router as confluence_router
+from src.api.models import router as models_router
 from src.document_processor.service import DocumentService
 
 # Load environment variables
@@ -28,7 +29,8 @@ async def lifespan(app: FastAPI):
     # Startup
     print("Starting Document Assistant...")
     document_service = DocumentService()
-    await document_service.initialize()
+    # Initialize with MPNet model by default (best for semantic search)
+    await document_service.initialize(embedding_model="mpnet", use_gpu=None)
     print("Document Assistant initialized successfully!")
     
     yield
@@ -64,6 +66,7 @@ app.add_middleware(
 app.include_router(documents_router, prefix="/api/documents", tags=["documents"])
 app.include_router(chat_router, prefix="/api/chat", tags=["chat"])
 app.include_router(confluence_router, prefix="/api/confluence", tags=["confluence"])
+app.include_router(models_router, prefix="/api/models", tags=["models"])
 
 # Mount static files for uploaded documents
 if not os.path.exists("../data/documents"):
