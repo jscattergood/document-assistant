@@ -22,6 +22,11 @@ import {
   Person,
   Error,
 } from '@mui/icons-material';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
+import rehypeRaw from 'rehype-raw';
+import 'highlight.js/styles/github.css';
 import { chatAPI, documentAPI } from '../services/api';
 import type { Document } from '../services/api';
 import toast from 'react-hot-toast';
@@ -243,9 +248,75 @@ const ChatPage: React.FC = () => {
                         borderRadius: 2,
                       }}
                     >
-                      <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
-                        {message.content}
-                      </Typography>
+                      {message.role === 'assistant' && !message.error ? (
+                        <Box sx={{ '& p': { margin: '0.5em 0' }, '& ul, & ol': { paddingLeft: '1.5em' } }}>
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            rehypePlugins={[rehypeHighlight, rehypeRaw]}
+                            components={{
+                              p: ({ children }) => (
+                                <Typography variant="body1" component="div" sx={{ mb: 1 }}>
+                                  {children}
+                                </Typography>
+                              ),
+                              h1: ({ children }) => (
+                                <Typography variant="h4" component="h1" sx={{ mb: 1, mt: 1 }}>
+                                  {children}
+                                </Typography>
+                              ),
+                              h2: ({ children }) => (
+                                <Typography variant="h5" component="h2" sx={{ mb: 1, mt: 1 }}>
+                                  {children}
+                                </Typography>
+                              ),
+                              h3: ({ children }) => (
+                                <Typography variant="h6" component="h3" sx={{ mb: 1, mt: 1 }}>
+                                  {children}
+                                </Typography>
+                              ),
+                              code: ({ inline, children, ...props }: any) => (
+                                <Box
+                                  component={inline ? 'code' : 'pre'}
+                                  sx={{
+                                    backgroundColor: 'grey.200',
+                                    padding: inline ? '0.2em 0.4em' : '1em',
+                                    borderRadius: 1,
+                                    fontFamily: 'monospace',
+                                    fontSize: '0.9em',
+                                    display: inline ? 'inline' : 'block',
+                                    overflow: 'auto',
+                                    whiteSpace: inline ? 'normal' : 'pre',
+                                  }}
+                                  {...props}
+                                >
+                                  {children}
+                                </Box>
+                              ),
+                              ul: ({ children }) => (
+                                <Box component="ul" sx={{ paddingLeft: '1.5em', margin: '0.5em 0' }}>
+                                  {children}
+                                </Box>
+                              ),
+                              ol: ({ children }) => (
+                                <Box component="ol" sx={{ paddingLeft: '1.5em', margin: '0.5em 0' }}>
+                                  {children}
+                                </Box>
+                              ),
+                              li: ({ children }) => (
+                                <Typography component="li" variant="body1" sx={{ mb: 0.5 }}>
+                                  {children}
+                                </Typography>
+                              ),
+                            }}
+                          >
+                            {message.content}
+                          </ReactMarkdown>
+                        </Box>
+                      ) : (
+                        <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
+                          {message.content}
+                        </Typography>
+                      )}
                       <Typography 
                         variant="caption" 
                         color={message.role === 'user' ? 'primary.contrastText' : 'text.secondary'}

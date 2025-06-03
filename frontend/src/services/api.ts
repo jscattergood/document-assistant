@@ -291,4 +291,164 @@ export const confluenceAPI = {
   },
 };
 
+// Models API methods
+export const modelsAPI = {
+  // Get available embedding models
+  async getAvailableModels(): Promise<{
+    success: boolean;
+    models: Record<string, any>;
+    count: number;
+  }> {
+    const response = await api.get('/models/embeddings/available');
+    return response.data;
+  },
+
+  // Get current embedding model info
+  async getCurrentModel(): Promise<{
+    success: boolean;
+    model_info: any;
+  }> {
+    const response = await api.get('/models/embeddings/current');
+    return response.data;
+  },
+
+  // Set embedding model
+  async setEmbeddingModel(modelKey: string, useGpu?: boolean): Promise<{
+    success: boolean;
+    message: string;
+    model_info?: any;
+  }> {
+    const response = await api.post('/models/embeddings/set', {
+      model_key: modelKey,
+      use_gpu: useGpu,
+    });
+    return response.data;
+  },
+
+  // Test embedding model
+  async testEmbeddingModel(text?: string): Promise<{
+    success: boolean;
+    text: string;
+    embedding_length: number;
+    embedding_sample: number[];
+    model_info: any;
+  }> {
+    const params = text ? { text } : {};
+    const response = await api.post('/models/embeddings/test', {}, { params });
+    return response.data;
+  },
+
+  // Get system status
+  async getSystemStatus(): Promise<{
+    success: boolean;
+    gpu_info: any;
+    embedding_model: any;
+    available_models: string[];
+    document_count: number;
+  }> {
+    const response = await api.get('/models/system/status');
+    return response.data;
+  },
+
+  // Clear vector store
+  async clearVectorStore(): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    const response = await api.post('/models/vector-store/clear');
+    return response.data;
+  },
+
+  // Storage configuration methods
+  getStorageConfig: () => api.get('/models/storage/config'),
+  getStorageStatus: () => api.get('/models/storage/status'),
+  validateStoragePath: (path: string) => api.post('/models/storage/validate-path', { path }),
+  clearStorageCache: () => api.post('/models/storage/clear-cache'),
+
+  // GPT4All Model Management
+  async getAvailableGPT4AllModels(): Promise<{
+    success: boolean;
+    models: any[];
+    total_count: number;
+    downloaded_count: number;
+    active_model: string | null;
+  }> {
+    const response = await api.get('/models/gpt4all/available');
+    return response.data;
+  },
+
+  async getDownloadedGPT4AllModels(): Promise<{
+    success: boolean;
+    models: any[];
+    count: number;
+    active_model: string | null;
+  }> {
+    const response = await api.get('/models/gpt4all/downloaded');
+    return response.data;
+  },
+
+  async downloadGPT4AllModel(modelName: string, downloadUrl: string): Promise<{
+    success: boolean;
+    message: string;
+    filename?: string;
+    size_human?: string;
+  }> {
+    const response = await api.post('/models/gpt4all/download', {
+      model_name: modelName,
+      download_url: downloadUrl,
+    });
+    return response.data;
+  },
+
+  async uploadGPT4AllModel(file: File): Promise<{
+    success: boolean;
+    message: string;
+    filename?: string;
+    size_bytes?: number;
+    size_human?: string;
+  }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await api.post('/models/gpt4all/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
+  async deleteGPT4AllModel(filename: string): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    const response = await api.delete(`/models/gpt4all/${filename}`);
+    return response.data;
+  },
+
+  async setActiveGPT4AllModel(filename: string): Promise<{
+    success: boolean;
+    message: string;
+    active_model?: string;
+  }> {
+    const response = await api.post('/models/gpt4all/set-active', null, {
+      params: { filename },
+    });
+    return response.data;
+  },
+
+  async getDownloadStatus(filename: string): Promise<{
+    success: boolean;
+    exists: boolean;
+    size_bytes: number;
+    size_human?: string;
+    expected_size?: number;
+    is_complete?: boolean;
+    progress: number;
+  }> {
+    const response = await api.get(`/models/gpt4all/download-status/${filename}`);
+    return response.data;
+  },
+};
+
 export default api; 
