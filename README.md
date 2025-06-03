@@ -2,14 +2,145 @@
 
 An AI-powered application for analyzing documents and web pages, helping create new documents and Confluence pages offline using LlamaIndex, GPT4All, and React.
 
-## Features
+## ✨ Features
 
 - **📄 Document Analysis**: Upload and analyze various document formats (PDF, DOCX, TXT, Markdown, HTML)
+- **🤖 Dual AI Models**: 
+  - **BERT Embeddings** - 6 advanced models for document understanding and semantic search
+  - **GPT4All Language Models** - Local LLMs for chat and content generation (Llama 3, Mistral, etc.)
 - **🔗 Confluence Integration**: Read existing pages and generate new Confluence content
-- **💬 AI-Powered Chat**: Query your documents using natural language
+- **💬 AI-Powered Chat**: Query your documents using natural language with intelligent context
 - **✍️ Document Generation**: AI-assisted creation of new documents and pages
-- **🔒 Offline Operation**: Works completely offline using local LLM inference with GPT4All
-- **🎨 Modern UI**: Beautiful React-based web interface with Tailwind CSS
+- **📊 Rich Metadata**: Advanced file analysis including content statistics, format-specific data
+- **🛠️ Model Management**: Easy download, switch, and manage AI models through the UI
+- **🔒 Offline Operation**: Works completely offline - your data never leaves your device
+- **🎨 Modern UI**: Beautiful React-based interface with tabbed settings and real-time status
+
+## 🚀 Quick Start
+
+### Prerequisites
+- **Python 3.9+** with pip
+- **Node.js 18+** with npm
+- **4GB+ RAM** (for AI models)
+- **10GB+ disk space** (for models and data)
+- **Docker & Docker Compose** (optional)
+
+### 1️⃣ Automated Setup
+
+```bash
+# Clone and setup
+git clone <repository-url>
+cd document-assistant
+chmod +x setup.sh
+./setup.sh
+```
+
+### 2️⃣ Download AI Models
+
+The application uses two types of AI models:
+
+**BERT Embedding Models** (downloaded automatically):
+- `all-MiniLM-L6-v2` (384D) - Default, fast
+- `all-mpnet-base-v2` (768D) - **Recommended** for best quality
+- `bert-base-uncased`, `distilbert`, `roberta` - Additional options
+
+**GPT4All Language Models** (download via UI or manually):
+
+*Option A: Through the UI (Recommended)*
+1. Start the application (step 3)
+2. Go to Settings → Language Models
+3. Click download on any recommended model
+
+*Option B: Manual Download*
+```bash
+cd data/models
+
+# Recommended models:
+wget https://huggingface.co/QuantFactory/Meta-Llama-3-8B-Instruct-GGUF/resolve/main/Meta-Llama-3-8B-Instruct.Q4_0.gguf  # 4.7GB
+wget https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf  # 2.2GB
+```
+
+### 3️⃣ Start the Application
+
+**Local Development:**
+```bash
+# Terminal 1 - Backend
+cd backend
+source venv/bin/activate  # Windows: venv\Scripts\activate
+python main.py
+
+# Terminal 2 - Frontend  
+cd frontend
+npm start
+```
+
+**Docker (Alternative):**
+```bash
+docker-compose up --build
+```
+
+### 4️⃣ Access the Application
+- **Frontend**: http://localhost:3000
+- **API Docs**: http://localhost:8000/docs
+
+## 🎯 Usage Guide
+
+### Document Management
+1. **Upload**: Drag & drop files on the Documents page
+2. **Analyze**: View rich metadata including word counts, file properties, format-specific data
+3. **Search**: Semantic search across all your documents
+
+### AI Model Configuration
+1. **Settings → Embedding Models**: Choose BERT model for document understanding
+   - **MPNet**: Best quality for semantic search
+   - **MiniLM**: Fastest for quick responses
+   - **BERT Large**: Most accurate but slower
+
+2. **Settings → Language Models**: Download and manage GPT4All models
+   - **Llama 3**: Latest Meta model, excellent quality
+   - **Phi-3 Mini**: Microsoft's efficient model  
+   - **Mistral 7B**: Great for general tasks
+
+### Chat & Generation
+1. **Chat**: Ask questions about your documents
+2. **Generate**: Create new content based on your knowledge base
+3. **Context**: AI automatically uses relevant document content
+
+### Confluence Integration  
+1. **Configure**: Add Confluence credentials in Settings
+2. **Import**: Sync existing pages for context
+3. **Generate**: Create new Confluence content with AI assistance
+
+## ⚙️ Configuration
+
+### System Requirements by Model
+
+| Model Type | Model | Size | RAM | Speed | Best For |
+|------------|-------|------|-----|-------|----------|
+| **Embedding** | MiniLM-L6-v2 | 23MB | 2GB | Fast | Quick search |
+| **Embedding** | MPNet-base-v2 | 438MB | 4GB | Medium | **Recommended** |
+| **Language** | Phi-3 Mini | 2.2GB | 6GB | Fast | General chat |
+| **Language** | Llama 3 8B | 4.7GB | 8GB | Medium | **High quality** |
+| **Language** | Mistral 7B | 4.1GB | 8GB | Medium | Balanced |
+
+### Environment Variables
+
+Create `backend/.env`:
+```env
+# Basic Configuration
+PORT=8000
+HOST=0.0.0.0
+
+# Model Paths (auto-configured)
+GPT4ALL_MODEL_PATH=../data/models
+EMBEDDING_MODEL=all-mpnet-base-v2
+
+# Confluence (Optional)
+CONFLUENCE_URL=https://your-domain.atlassian.net
+CONFLUENCE_USERNAME=your-email@domain.com  
+CONFLUENCE_API_TOKEN=your-api-token
+CONFLUENCE_SPACE_KEY=YOUR_SPACE
+```
 
 ## Tech Stack
 
@@ -67,208 +198,6 @@ document-assistant/
 | Backend API | `http://localhost:8000` | `http://localhost:8000` | FastAPI backend |
 | API Docs | `http://localhost:8000/docs` | `http://localhost:8000/docs` | Interactive API documentation |
 | ChromaDB | Local file storage | `http://localhost:8001` | Vector database (Docker only) |
-
-## Quick Start
-
-### Prerequisites
-- **Python 3.9+** with pip
-- **Node.js 18+** with npm
-- **4GB+ RAM** (for GPT4All models)
-- **10GB+ disk space** (for models and data)
-- **Docker & Docker Compose** (optional, for containerized deployment)
-
-### Automated Setup
-
-1. **Clone the repository**:
-   ```bash
-   git clone <repository-url>
-   cd document-assistant
-   ```
-
-2. **Run the setup script**:
-   ```bash
-   chmod +x setup.sh
-   ./setup.sh
-   ```
-
-3. **Download GPT4All models** (required for AI functionality):
-   
-   **Option A: Automatic download (recommended)**
-   ```bash
-   # Download the smaller, faster model (1.9GB)
-   cd data/models
-   wget https://gpt4all.io/models/gguf/orca-mini-3b-gguf2-q4_0.gguf
-   
-   # Or download the larger, more capable model (6.9GB)
-   wget https://gpt4all.io/models/gguf/nous-hermes-llama2-13b.Q4_0.gguf
-   ```
-   
-   **Option B: Manual download**
-   - Visit [GPT4All Downloads](https://gpt4all.io/index.html)
-   - Download a `.gguf` model file
-   - Place it in `./data/models/`
-
-### Deployment Options
-
-#### Option 1: Local Development
-
-4. **Start the application**:
-   ```bash
-   # Terminal 1 - Backend
-   cd backend
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   python main.py
-   
-   # Terminal 2 - Frontend
-   cd frontend
-   npm start
-   ```
-
-5. **Access the application**:
-   - Frontend: `http://localhost:3000`
-   - Backend API docs: `http://localhost:8000/docs`
-
-#### Option 2: Docker Deployment
-
-4. **Start with Docker**:
-   ```bash
-   # Build and run all services
-   docker-compose up --build
-   
-   # Or run in background
-   docker-compose up -d
-   ```
-
-5. **Access the application**:
-   - Frontend: `http://localhost:3000`
-   - Backend API docs: `http://localhost:8000/docs`
-   - ChromaDB: `http://localhost:8001`
-
-### Manual Setup
-
-If you prefer manual setup:
-
-1. **Backend Setup**:
-   ```bash
-   cd backend
-   python3 -m venv venv
-   source venv/bin/activate
-   pip install -r requirements.txt
-   ```
-
-2. **Frontend Setup**:
-   ```bash
-   cd frontend
-   npm install
-   ```
-
-3. **Create data directories**:
-   ```bash
-   mkdir -p data/{documents,confluence,models,chroma_db}
-   ```
-
-## Usage Guide
-
-### 1. Document Upload and Analysis
-- Navigate to the **Documents** page
-- Upload PDF, DOCX, TXT, Markdown, or HTML files
-- Wait for processing and indexing
-- View document summaries and metadata
-
-### 2. Chat with Documents
-- Go to the **Chat** page
-- Ask natural language questions about your documents
-- Get AI-powered responses with source citations
-- Maintain conversation context across queries
-
-### 3. Confluence Integration
-- Configure Confluence connection in **Settings**
-- Import existing pages for context
-- Generate new page drafts using AI assistance
-- Export generated content to Confluence
-
-### 4. Document Generation
-- Use the chat interface to request new content
-- Generate documents based on existing knowledge
-- Create Confluence page templates
-- Export in various formats
-
-## Configuration
-
-### Environment Variables
-
-Create `backend/.env` with:
-
-```env
-# Backend Configuration
-PORT=8000
-HOST=0.0.0.0
-
-# GPT4All Model Configuration
-GPT4ALL_MODEL_PATH=../data/models
-GPT4ALL_MODEL_NAME=nous-hermes-llama2-13b.Q4_0.gguf
-
-# ChromaDB Configuration (for Docker)
-CHROMA_HOST=chroma
-CHROMA_PORT=8000
-
-# Confluence Configuration (Optional)
-CONFLUENCE_URL=https://your-domain.atlassian.net
-CONFLUENCE_USERNAME=your-email@domain.com
-CONFLUENCE_API_TOKEN=your-api-token
-CONFLUENCE_SPACE_KEY=YOUR_SPACE
-```
-
-### Recommended GPT4All Models
-
-| Model | Size | Speed | Quality | Use Case |
-|-------|------|-------|---------|----------|
-| `orca-mini-3b-gguf2-q4_0.gguf` | 1.9GB | Fast | Medium | Quick responses |
-| `nous-hermes-llama2-13b.Q4_0.gguf` | 6.9GB | Medium | High | General use |
-| `wizardlm-13b-v1.2.Q4_0.gguf` | 4.1GB | Medium | High | Complex reasoning |
-
-## API Documentation
-
-The backend provides a RESTful API with the following main endpoints:
-
-- `POST /api/documents/upload` - Upload and process documents
-- `GET /api/documents/` - List all documents
-- `POST /api/chat/query` - Query documents with natural language
-- `POST /api/chat/generate` - Generate new content
-- `POST /api/confluence/import` - Import Confluence pages
-
-Full API documentation is available at `http://localhost:8000/docs` when the backend is running.
-
-## Development
-
-### Running in Development Mode
-
-```bash
-# Backend with auto-reload
-cd backend
-source venv/bin/activate
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
-
-# Frontend with hot reload
-cd frontend
-npm start
-```
-
-### Using Docker
-
-```bash
-# Build and run all services
-docker-compose up --build
-
-# Run in background
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop services
-docker-compose down
-```
 
 ## Important Notes
 
@@ -341,4 +270,164 @@ MIT License - see LICENSE file for details
 - [GPT4All](https://github.com/nomic-ai/gpt4all) for offline LLM capabilities
 - [ChromaDB](https://github.com/chroma-core/chroma) for vector storage
 - [FastAPI](https://github.com/tiangolo/fastapi) for the backend framework
-- [React](https://github.com/facebook/react) for the frontend framework 
+- [React](https://github.com/facebook/react) for the frontend framework
+
+## 🛠️ API Documentation
+
+### Core Endpoints
+- `POST /api/documents/upload` - Upload and process documents
+- `GET /api/documents/` - List all documents with metadata
+- `POST /api/chat/query` - Query documents with natural language
+- `POST /api/chat/generate` - Generate new content
+- `POST /api/confluence/import` - Import Confluence pages
+
+### Model Management API  
+- `GET /api/models/embeddings/available` - List BERT models
+- `POST /api/models/embeddings/set` - Switch embedding model
+- `GET /api/models/gpt4all/available` - List GPT4All models
+- `POST /api/models/gpt4all/download` - Download language model
+- `POST /api/models/gpt4all/upload` - Upload custom model
+
+**Full API Documentation**: http://localhost:8000/docs (when running)
+
+## 🔧 Development
+
+### Local Development
+```bash
+# Backend with auto-reload
+cd backend
+source venv/bin/activate
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+
+# Frontend with hot reload  
+cd frontend
+npm start
+```
+
+### Docker Development
+```bash
+# Build and run all services
+docker-compose up --build
+
+# Run in background
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop services
+docker-compose down
+```
+
+### Manual Setup (Advanced)
+```bash
+# Backend
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Frontend
+cd frontend
+npm install
+
+# Create directories
+mkdir -p data/{documents,confluence,models,chroma_db}
+```
+
+## 🚨 Troubleshooting
+
+### Common Issues
+
+**"No GPT4All model found"**
+- Download a model via Settings → Language Models
+- Or manually place `.gguf` files in `./data/models/`
+
+**Memory/Performance Issues**  
+- Use smaller models (Phi-3 Mini instead of Llama 3)
+- Close other applications
+- Ensure 8GB+ RAM for larger models
+
+**Frontend Build Errors**
+- Delete `node_modules`: `rm -rf node_modules && npm install`
+- Ensure Node.js 18+
+
+**Backend Import Errors**
+- Activate virtual environment: `source venv/bin/activate`
+- Reinstall: `pip install -r requirements.txt`
+
+**Docker Port Conflicts**
+- Ensure ports 3000, 8000, 8001 are available
+- Modify `docker-compose.yml` port mappings if needed
+
+### Device Support
+- **NVIDIA GPU**: CUDA support automatically detected
+- **Apple Silicon**: MPS acceleration enabled  
+- **CPU Only**: Automatic fallback, works on any system
+
+## 📂 Project Structure
+
+```
+document-assistant/
+├── backend/                    # Python FastAPI backend
+│   ├── src/
+│   │   ├── api/               # REST API endpoints
+│   │   ├── document_processor/ # Core processing logic
+│   │   ├── models/            # Data models
+│   │   └── utils/             # Utilities
+│   ├── requirements.txt       # Python dependencies
+│   └── main.py               # Application entry
+├── frontend/                  # React TypeScript frontend
+│   ├── src/
+│   │   ├── components/        # Reusable components
+│   │   ├── pages/            # Page components  
+│   │   ├── services/         # API services
+│   │   └── utils/            # Utilities
+│   └── package.json          # Node.js dependencies
+├── data/                     # Data storage (gitignored)
+│   ├── documents/           # Uploaded files
+│   ├── models/             # AI model files
+│   └── chroma_db/          # Vector database
+├── docker-compose.yml       # Container orchestration
+├── setup.sh                # Automated setup
+└── README.md               # This file
+```
+
+## Important Notes
+
+### What's Included vs. Downloaded
+- ✅ **Application code** - Ready to run
+- ✅ **BERT models** - Downloaded automatically  
+- ❌ **GPT4All models** - Download separately (1-5GB each)
+- ❌ **User data** - Your documents stay private
+
+### Privacy & Security
+- **100% Offline** - No data sent to external servers
+- **Local Processing** - All AI runs on your device
+- **Private Storage** - Documents and models stay on your machine
+- **No Tracking** - No analytics or usage monitoring
+
+### Performance Guidelines
+- **Minimum**: 4GB RAM, 2GB disk space
+- **Recommended**: 8GB RAM, 10GB disk space  
+- **Optimal**: 16GB RAM, 20GB disk space, dedicated GPU
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create feature branch: `git checkout -b feature-name`
+3. Make changes and test thoroughly
+4. Submit pull request with clear description
+
+## 📄 License
+
+MIT License - see LICENSE file for details
+
+## 🙏 Acknowledgments
+
+- [LlamaIndex](https://github.com/run-llama/llama_index) - Document processing framework
+- [GPT4All](https://github.com/nomic-ai/gpt4all) - Offline LLM capabilities  
+- [HuggingFace](https://huggingface.co/) - BERT models and transformers
+- [ChromaDB](https://github.com/chroma-core/chroma) - Vector storage
+- [FastAPI](https://github.com/tiangolo/fastapi) - Backend framework
+- [React](https://github.com/facebook/react) - Frontend framework 
