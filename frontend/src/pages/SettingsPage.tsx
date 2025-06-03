@@ -1088,14 +1088,20 @@ const SettingsPage: React.FC = () => {
                       value={maxTokens}
                       onChange={(_, value) => setMaxTokens(value as number)}
                       min={128}
-                      max={1536}
+                      max={2048}
                       step={128}
-                      marks
+                      marks={[
+                        { value: 128, label: '128' },
+                        { value: 512, label: '512' },
+                        { value: 1024, label: '1K' },
+                        { value: 1536, label: '1.5K' },
+                        { value: 2048, label: '2K' }
+                      ]}
                       valueLabelDisplay="auto"
                       disabled={loadingSettings}
                     />
                     <Typography variant="body2" color="text.secondary">
-                      Maximum tokens for AI responses (up to 1536 to leave room for document context)
+                      Maximum tokens for AI responses. Higher values may lead to repetitive content. (128-2048 tokens)
                     </Typography>
                   </Box>
 

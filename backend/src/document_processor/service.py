@@ -1332,22 +1332,12 @@ CONTENT:
             # Update LLM settings to ensure current max_tokens is used
             self.update_llm_settings()
             
-            # DEBUG: Check if documents are in the index
-            print(f"DEBUG: Query received: '{query}'")
-            print(f"DEBUG: Total documents loaded: {len(self.documents)}")
-            for doc_id, doc in self.documents.items():
-                print(f"DEBUG: Document '{doc.title}' (ID: {doc_id}) - Status: {doc.status}")
-            
             # Query the index
-            print("DEBUG: Querying index...")
             response = self.query_engine.query(query)
-            print(f"DEBUG: Raw response type: {type(response)}")
-            print(f"DEBUG: Raw response: {response}")
             
             # CLEAN UP RESPONSE: Extract only the AI-generated answer
             if hasattr(response, 'response') and response.response:
                 raw_response = response.response.strip()
-                print(f"DEBUG: Raw response text: '{raw_response}'")
                 
                 # Remove metadata sections that start with separators
                 clean_response = raw_response
@@ -1383,13 +1373,10 @@ CONTENT:
                     clean_lines.append(line)
                 
                 result = '\n'.join(clean_lines).strip()
-                print(f"DEBUG: Cleaned response: '{result}'")
             else:
                 result = str(response).strip() if response else ""
-                print(f"DEBUG: Fallback response: '{result}'")
             
             if not result or result.lower() in ['', 'empty response', 'empty response.']:
-                print("DEBUG: Empty result - returning fallback message")
                 return "I couldn't find relevant information in the documents to answer your question."
             
             # Truncate response to respect max_tokens setting
@@ -1400,9 +1387,6 @@ CONTENT:
             
         except Exception as e:
             print(f"Error in query_documents: {e}")
-            print(f"ERROR DEBUG: Exception type: {type(e)}")
-            import traceback
-            traceback.print_exc()
             return f"Error querying documents: {str(e)}"
     
     async def chat_with_documents(self, message: str, conversation_history: Optional[List] = None) -> str:
@@ -1414,26 +1398,16 @@ CONTENT:
             # Update LLM settings to ensure current max_tokens is used
             self.update_llm_settings()
             
-            # DEBUG: Check if documents are in the index
-            print(f"DEBUG CHAT: Message received: '{message}'")
-            print(f"DEBUG CHAT: Total documents loaded: {len(self.documents)}")
-            for doc_id, doc in self.documents.items():
-                print(f"DEBUG CHAT: Document '{doc.title}' (ID: {doc_id}) - Status: {doc.status}")
-            
             # Reset chat engine if new conversation
             if not conversation_history:
                 self.chat_engine.reset()
             
             # Chat with the engine
-            print("DEBUG CHAT: Chatting with engine...")
             response = self.chat_engine.chat(message)
-            print(f"DEBUG CHAT: Raw response type: {type(response)}")
-            print(f"DEBUG CHAT: Raw response: {response}")
             
             # CLEAN UP RESPONSE: Extract only the AI-generated answer
             if hasattr(response, 'response') and response.response:
                 raw_response = response.response.strip()
-                print(f"DEBUG CHAT: Raw response text: '{raw_response}'")
                 
                 # Remove metadata sections that start with separators
                 clean_response = raw_response
@@ -1469,13 +1443,10 @@ CONTENT:
                     clean_lines.append(line)
                 
                 result = '\n'.join(clean_lines).strip()
-                print(f"DEBUG CHAT: Cleaned response: '{result}'")
             else:
                 result = str(response).strip() if response else ""
-                print(f"DEBUG CHAT: Fallback response: '{result}'")
             
             if not result or result.lower() in ['', 'empty response', 'empty response.']:
-                print("DEBUG CHAT: Empty result - returning fallback message")
                 return "I couldn't find relevant information in the documents to answer your question."
             
             # Truncate response to respect max_tokens setting
@@ -1486,9 +1457,6 @@ CONTENT:
             
         except Exception as e:
             print(f"Error in chat_with_documents: {e}")
-            print(f"ERROR DEBUG CHAT: Exception type: {type(e)}")
-            import traceback
-            traceback.print_exc()
             return f"Error in chat: {str(e)}"
     
     def get_all_documents(self) -> List[Document]:
@@ -1764,7 +1732,6 @@ Remember: If it's not in the documents, you cannot answer it."""
                 # Just cut at target length if no good boundary found
                 truncated = truncated
             
-            print(f"Truncated response from ~{estimated_tokens} to ~{len(truncated)//4} tokens")
             return truncated
         
         return response 
