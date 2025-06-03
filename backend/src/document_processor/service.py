@@ -1338,14 +1338,9 @@ CONTENT:
             for doc_id, doc in self.documents.items():
                 print(f"DEBUG: Document '{doc.title}' (ID: {doc_id}) - Status: {doc.status}")
             
-            # MINIMAL TEST: Simplest possible prompt
-            simple_query = f"{query}"
-            
-            print(f"DEBUG: Simple query: '{simple_query}'")
-            
             # Query the index
             print("DEBUG: Querying index...")
-            response = self.query_engine.query(simple_query)
+            response = self.query_engine.query(query)
             print(f"DEBUG: Raw response type: {type(response)}")
             print(f"DEBUG: Raw response: {response}")
             
@@ -1397,6 +1392,10 @@ CONTENT:
                 print("DEBUG: Empty result - returning fallback message")
                 return "I couldn't find relevant information in the documents to answer your question."
             
+            # Truncate response to respect max_tokens setting
+            settings = self._load_app_settings()
+            result = self._truncate_response_to_max_tokens(result, settings['max_tokens'])
+            
             return result
             
         except Exception as e:
@@ -1425,14 +1424,9 @@ CONTENT:
             if not conversation_history:
                 self.chat_engine.reset()
             
-            # MINIMAL TEST: Simplest possible message
-            simple_message = f"{message}"
-            
-            print(f"DEBUG CHAT: Simple message: '{simple_message}'")
-            
             # Chat with the engine
             print("DEBUG CHAT: Chatting with engine...")
-            response = self.chat_engine.chat(simple_message)
+            response = self.chat_engine.chat(message)
             print(f"DEBUG CHAT: Raw response type: {type(response)}")
             print(f"DEBUG CHAT: Raw response: {response}")
             
@@ -1483,6 +1477,10 @@ CONTENT:
             if not result or result.lower() in ['', 'empty response', 'empty response.']:
                 print("DEBUG CHAT: Empty result - returning fallback message")
                 return "I couldn't find relevant information in the documents to answer your question."
+            
+            # Truncate response to respect max_tokens setting
+            settings = self._load_app_settings()
+            result = self._truncate_response_to_max_tokens(result, settings['max_tokens'])
             
             return result
             
@@ -1743,64 +1741,30 @@ Remember: If it's not in the documents, you cannot answer it."""
                 
                 print("Reinitialize engines with updated settings")
     
-    def _truncate_prompt_if_needed(self, prompt: str, max_context_tokens: int = 2048, reserve_tokens: int = 512) -> str:
-        """Truncate prompt if it exceeds context window, leaving room for response."""
-        # Simple token estimation (rough approximation: 1 token ≈ 4 characters)
-        estimated_tokens = len(prompt) // 4
-        max_prompt_tokens = max_context_tokens - reserve_tokens
+    def _truncate_response_to_max_tokens(self, response: str, max_tokens: int) -> str:
+        """Truncate response to respect max_tokens setting."""
+        # Rough token estimation: 1 token ≈ 4 characters
+        estimated_tokens = len(response) // 4
         
-        if estimated_tokens > max_prompt_tokens:
-            # Calculate how many characters to keep
-            max_chars = max_prompt_tokens * 4
+        if estimated_tokens > max_tokens:
+            # Calculate target character length
+            target_chars = max_tokens * 4
             
-            # Try to truncate at a sentence boundary
-            truncated = prompt[:max_chars]
-            
-            # Find the last complete sentence
+            # Find the last complete sentence within the limit
+            truncated = response[:target_chars]
             last_period = truncated.rfind('.')
             last_newline = truncated.rfind('\n')
             
-            # Use whichever boundary is closer to the end
+            # Use whichever boundary is closer to the end and reasonable
             if last_period > len(truncated) * 0.8:  # If period is in last 20%
                 truncated = truncated[:last_period + 1]
             elif last_newline > len(truncated) * 0.8:  # If newline is in last 20%
                 truncated = truncated[:last_newline]
+            else:
+                # Just cut at target length if no good boundary found
+                truncated = truncated
             
-            # Add truncation notice
-            truncated += "\n\n[Note: Content truncated due to length limitations]"
-            
-            print(f"Truncated prompt from ~{estimated_tokens} to ~{len(truncated)//4} tokens")
+            print(f"Truncated response from ~{estimated_tokens} to ~{len(truncated)//4} tokens")
             return truncated
         
-        return prompt 
-
-    def _summarize_document_content(self, content: str, max_length: int = 500) -> str:
-        """Summarize document content to key points to save tokens."""
-        if len(content) <= max_length:
-            return content
-        
-        # Split into sentences
-        sentences = [s.strip() for s in content.split('.') if s.strip()]
-        
-        # If still too long, take first portion and key sentences
-        if len(' '.join(sentences)) > max_length:
-            # Take first few sentences
-            summary_parts = sentences[:3]
-            remaining_length = max_length - len(' '.join(summary_parts))
-            
-            # Look for sentences with key terms
-            key_terms = ['important', 'key', 'main', 'primary', 'essential', 'critical', 'summary', 'conclusion']
-            key_sentences = []
-            
-            for sentence in sentences[3:]:
-                if any(term in sentence.lower() for term in key_terms) and len(' '.join(key_sentences)) < remaining_length//2:
-                    key_sentences.append(sentence)
-            
-            # Combine and truncate if needed
-            full_summary = ' '.join(summary_parts + key_sentences)
-            if len(full_summary) > max_length:
-                full_summary = full_summary[:max_length] + "..."
-            
-            return full_summary
-        
-        return ' '.join(sentences) 
+        return response 
