@@ -116,12 +116,16 @@ const SettingsPage: React.FC = () => {
   // App Settings State
   const [useDocumentContext, setUseDocumentContext] = useState(true);
   const [enableNotifications, setEnableNotifications] = useState(true);
-  const [offlineMode, setOfflineMode] = useState(true);
+  const [maxTokens, setMaxTokens] = useState(512);
+  const [temperature, setTemperature] = useState(0.7);
+  const [loadingSettings, setLoadingSettings] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
 
   useEffect(() => {
     loadModelInfo();
     loadStorageInfo();
     loadGpt4allModels();
+    loadAppSettings();
   }, []);
 
   const loadModelInfo = async () => {
@@ -196,6 +200,47 @@ const SettingsPage: React.FC = () => {
       toast.error('Failed to load GPT4All models');
     } finally {
       setLoadingGpt4allModels(false);
+    }
+  };
+
+  const loadAppSettings = async () => {
+    setLoadingSettings(true);
+    try {
+      const response = await modelsAPI.getSettings();
+      if (response.success) {
+        setMaxTokens(response.max_tokens);
+        setTemperature(response.temperature);
+        setUseDocumentContext(response.use_document_context);
+        setEnableNotifications(response.enable_notifications);
+      }
+    } catch (error) {
+      console.error('Error loading settings:', error);
+      toast.error('Failed to load settings');
+    } finally {
+      setLoadingSettings(false);
+    }
+  };
+
+  const saveAppSettings = async () => {
+    setSavingSettings(true);
+    try {
+      const response = await modelsAPI.updateSettings({
+        max_tokens: maxTokens,
+        temperature: temperature,
+        use_document_context: useDocumentContext,
+        enable_notifications: enableNotifications,
+      });
+      
+      if (response.success) {
+        toast.success('Settings saved successfully!');
+      } else {
+        toast.error('Failed to save settings');
+      }
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      toast.error('Failed to save settings');
+    } finally {
+      setSavingSettings(false);
     }
   };
 
@@ -1023,12 +1068,14 @@ const SettingsPage: React.FC = () => {
                   <Box sx={{ mb: 3 }}>
                     <Typography gutterBottom>Response Temperature</Typography>
                     <Slider
-                      defaultValue={0.7}
+                      value={temperature}
+                      onChange={(_, value) => setTemperature(value as number)}
                       min={0}
                       max={1}
                       step={0.1}
                       marks
                       valueLabelDisplay="auto"
+                      disabled={loadingSettings}
                     />
                     <Typography variant="body2" color="text.secondary">
                       Controls creativity vs consistency in responses
@@ -1038,15 +1085,17 @@ const SettingsPage: React.FC = () => {
                   <Box sx={{ mb: 3 }}>
                     <Typography gutterBottom>Max Response Length</Typography>
                     <Slider
-                      defaultValue={512}
+                      value={maxTokens}
+                      onChange={(_, value) => setMaxTokens(value as number)}
                       min={128}
-                      max={2048}
+                      max={1536}
                       step={128}
                       marks
                       valueLabelDisplay="auto"
+                      disabled={loadingSettings}
                     />
                     <Typography variant="body2" color="text.secondary">
-                      Maximum tokens for AI responses
+                      Maximum tokens for AI responses (up to 1536 to leave room for document context)
                     </Typography>
                   </Box>
 
@@ -1055,10 +1104,30 @@ const SettingsPage: React.FC = () => {
                       <Switch 
                         checked={useDocumentContext}
                         onChange={(e) => setUseDocumentContext(e.target.checked)}
+                        disabled={loadingSettings}
                       />
                     }
                     label="Use document context in responses"
                   />
+
+                  <Box sx={{ display: 'flex', gap: 2, mt: 3 }}>
+                    <Button
+                      variant="contained"
+                      onClick={saveAppSettings}
+                      disabled={savingSettings || loadingSettings}
+                      startIcon={savingSettings ? <CircularProgress size={20} /> : <Save />}
+                    >
+                      {savingSettings ? 'Saving...' : 'Save Settings'}
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      onClick={loadAppSettings}
+                      disabled={loadingSettings}
+                      startIcon={<Refresh />}
+                    >
+                      Refresh
+                    </Button>
+                  </Box>
                 </Box>
               </Paper>
 
@@ -1077,24 +1146,19 @@ const SettingsPage: React.FC = () => {
                       <Switch 
                         checked={enableNotifications}
                         onChange={(e) => setEnableNotifications(e.target.checked)}
+                        disabled={loadingSettings}
                       />
                     }
                     label="Enable notifications"
                     sx={{ mb: 2 }}
                   />
 
-                  <FormControlLabel
-                    control={
-                      <Switch 
-                        checked={offlineMode}
-                        onChange={(e) => setOfflineMode(e.target.checked)}
-                      />
-                    }
-                    label="Offline mode (keep data local)"
-                  />
-
                   <Alert severity="info" sx={{ mt: 2 }}>
-                    All your data stays private and local to your device. No information is sent to external servers.
+                    <Typography variant="subtitle2">Privacy & Security:</Typography>
+                    <Typography variant="body2">
+                      This application is designed to work completely offline. All your data stays private and local to your device. 
+                      No information is sent to external servers.
+                    </Typography>
                   </Alert>
                 </Box>
               </Paper>

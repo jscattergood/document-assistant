@@ -2,6 +2,7 @@
 API endpoints for model management and system configuration.
 """
 import os
+import json
 import asyncio
 import requests
 from pathlib import Path
@@ -34,6 +35,20 @@ class EmbeddingModelResponse(BaseModel):
     success: bool
     message: str
     model_info: Optional[Dict[str, Any]] = None
+
+class AppSettings(BaseModel):
+    """Application settings."""
+    max_tokens: int = 512
+    temperature: float = 0.7
+    use_document_context: bool = True
+    enable_notifications: bool = True
+
+class AppSettingsUpdate(BaseModel):
+    """Update request for application settings."""
+    max_tokens: Optional[int] = None
+    temperature: Optional[float] = None
+    use_document_context: Optional[bool] = None
+    enable_notifications: Optional[bool] = None
 
 class GPT4AllModelInfo(BaseModel):
     """Information about a GPT4All model."""
@@ -727,4 +742,116 @@ async def clear_storage_cache():
             "cleared_items": ["document_cache", "embedding_cache", "temp_files"]
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error clearing cache: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Error clearing cache: {str(e)}")
+
+# Application Settings Endpoints
+
+def _get_settings_file_path() -> Path:
+    """Get the path to the settings file."""
+    return Path("../data/app_settings.json")
+
+def _load_settings() -> AppSettings:
+    """Load settings from file or return defaults."""
+    settings_file = _get_settings_file_path()
+    
+    if settings_file.exists():
+        try:
+            with open(settings_file, 'r') as f:
+                data = json.load(f)
+                return AppSettings(**data)
+        except Exception as e:
+            print(f"Error loading settings, using defaults: {e}")
+    
+    # Return default settings
+    return AppSettings()
+
+def _save_settings(settings: AppSettings) -> bool:
+    """Save settings to file."""
+    try:
+        settings_file = _get_settings_file_path()
+        settings_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(settings_file, 'w') as f:
+            json.dump(settings.dict(), f, indent=2)
+        return True
+    except Exception as e:
+        print(f"Error saving settings: {e}")
+        return False
+
+@router.get("/settings", response_model=AppSettings)
+async def get_app_settings():
+    """Get current application settings."""
+    try:
+        settings = _load_settings()
+        return settings
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading settings: {str(e)}")
+
+@router.post("/settings")
+async def update_app_settings(update: AppSettingsUpdate, service: DocumentService = Depends(get_document_service)):
+    """Update application settings."""
+    try:
+        # Load current settings
+        current_settings = _load_settings()
+        
+        # Track if max_tokens changed
+        max_tokens_changed = False
+        
+        # Update only provided fields
+        if update.max_tokens is not None:
+            if not (128 <= update.max_tokens <= 1536):
+                raise HTTPException(status_code=400, detail="max_tokens must be between 128 and 1536")
+            # Additional validation - ensure max_tokens leaves room for input context
+            if update.max_tokens > 1536:  # Leave at least 2560 tokens for input (4096 - 1536)
+                raise HTTPException(status_code=400, detail="max_tokens too large - must be <= 1536 to leave room for document context")
+            if current_settings.max_tokens != update.max_tokens:
+                max_tokens_changed = True
+            current_settings.max_tokens = update.max_tokens
+            
+        if update.temperature is not None:
+            if not (0.0 <= update.temperature <= 1.0):
+                raise HTTPException(status_code=400, detail="temperature must be between 0.0 and 1.0")
+            current_settings.temperature = update.temperature
+            
+        if update.use_document_context is not None:
+            current_settings.use_document_context = update.use_document_context
+            
+        if update.enable_notifications is not None:
+            current_settings.enable_notifications = update.enable_notifications
+        
+        # Save updated settings
+        if _save_settings(current_settings):
+            # Update LLM settings if max_tokens changed
+            if max_tokens_changed:
+                service.update_llm_settings()
+                
+            return {
+                "success": True,
+                "message": "Settings updated successfully",
+                "settings": current_settings.dict()
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to save settings")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating settings: {str(e)}")
+
+@router.post("/settings/reset")
+async def reset_app_settings():
+    """Reset application settings to defaults."""
+    try:
+        default_settings = AppSettings()
+        
+        if _save_settings(default_settings):
+            return {
+                "success": True,
+                "message": "Settings reset to defaults",
+                "settings": default_settings.dict()
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to reset settings")
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error resetting settings: {str(e)}") 

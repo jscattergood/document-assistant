@@ -1,0 +1,6 @@
+{
+  "max_tokens": 1536,
+  "temperature": 0.7,
+  "use_document_context": true,
+  "enable_notifications": true
+}

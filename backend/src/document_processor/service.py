@@ -7,6 +7,7 @@ import asyncio
 import re
 import hashlib
 import mimetypes
+import json
 from datetime import datetime
 import platform
 import pwd
@@ -210,6 +211,7 @@ class GPT4AllLLM(LLM):
     
     model_path: str
     model_name: str
+    default_max_tokens: int = 512
     
     def __init__(self, model_path: str, model_name: str, **kwargs):
         super().__init__(model_path=model_path, model_name=model_name, **kwargs)
@@ -227,11 +229,15 @@ class GPT4AllLLM(LLM):
             print(f"Failed to load GPT4All model: {e}")
             self._available = False
     
+    def set_default_max_tokens(self, max_tokens: int):
+        """Set the default max_tokens for this LLM instance."""
+        self.default_max_tokens = max_tokens
+    
     @property
     def metadata(self) -> LLMMetadata:
         return LLMMetadata(
-            context_window=2048,
-            num_output=512,
+            context_window=4096,  # Increased from 2048 - Llama models typically support 4k+ context
+            num_output=self.default_max_tokens,
             model_name=self.model_name,
         )
     
@@ -241,7 +247,7 @@ class GPT4AllLLM(LLM):
             return CompletionResponse(text="GPT4All model not available. Please check model installation.")
         
         try:
-            max_tokens = kwargs.get('max_tokens', 512)
+            max_tokens = kwargs.get('max_tokens', self.default_max_tokens)
             response = self._model.generate(prompt, max_tokens=max_tokens)
             return CompletionResponse(text=response)
         except Exception as e:
@@ -315,16 +321,41 @@ class DocumentService:
         # Ensure directories exist
         for directory in [self.data_dir, self.documents_dir, self.models_dir, self.chroma_dir]:
             directory.mkdir(parents=True, exist_ok=True)
+
+    def _load_app_settings(self) -> Dict[str, Any]:
+        """Load application settings from file."""
+        settings_file = self.data_dir / "app_settings.json"
+        default_settings = {
+            "max_tokens": 512,  # Safe default that leaves plenty of room for document context
+            "temperature": 0.7,
+            "use_document_context": True,
+            "enable_notifications": True
+        }
+        
+        if settings_file.exists():
+            try:
+                with open(settings_file, 'r') as f:
+                    settings = json.load(f)
+                    # Merge with defaults to ensure all keys exist
+                    return {**default_settings, **settings}
+            except Exception as e:
+                print(f"Error loading settings, using defaults: {e}")
+        
+        return default_settings
     
     async def initialize(self, embedding_model: str = "mpnet", use_gpu: bool = None):
         """Initialize the document service with LLM and embeddings."""
         try:
+            # Load app settings early
+            settings = self._load_app_settings()
+            
             # Initialize GPT4All LLM
             model_path = self._get_gpt4all_model_path()
             if model_path:
                 self.llm = GPT4AllLLM(str(self.models_dir), model_path)
+                self.llm.set_default_max_tokens(settings['max_tokens'])
                 Settings.llm = self.llm
-                print(f"Initialized GPT4All with model: {model_path}")
+                print(f"Initialized GPT4All with model: {model_path} (max_tokens: {settings['max_tokens']})")
             else:
                 print("Warning: No GPT4All model found. Using mock LLM.")
                 Settings.llm = MockLLM()
@@ -332,10 +363,12 @@ class DocumentService:
             # Configure BERT embeddings
             await self.set_embedding_model(embedding_model, use_gpu)
             
-            # Configure node parser  
+            # Configure node parser with improved settings for RAG accuracy
             Settings.node_parser = SentenceSplitter(
-                chunk_size=512,
-                chunk_overlap=50
+                chunk_size=1024,  # Increased from 512 for better context
+                chunk_overlap=100,  # Increased from 50 for better continuity
+                paragraph_separator="\n\n",  # Better paragraph boundaries
+                secondary_chunking_regex="[.!?]+",  # Split on sentence boundaries
             )
             
             # Initialize Chroma vector store
@@ -458,17 +491,39 @@ class DocumentService:
             # Combine all metadata
             combined_metadata = {**file_metadata, **content_metadata}
             
+            # Enhance content for better RAG performance
+            enhanced_content = self._enhance_document_for_rag(content, {
+                'title': file_path.stem,
+                'document_type': doc_type.value,
+                'filename': file_path.name,
+                **combined_metadata
+            })
+            
+            # Create document record
+            doc_id = str(uuid.uuid4())
             document = Document(
                 id=doc_id,
                 title=file_path.stem,
                 type=doc_type,
-                content=content,
+                content=content,  # Store original content
                 file_path=str(file_path),
-                status=DocumentStatus.INDEXED,
+                status=DocumentStatus.PROCESSING,
                 size_bytes=file_metadata['size_bytes'],
                 created_at=datetime.fromtimestamp(file_metadata['created_at']),
                 updated_at=datetime.fromtimestamp(file_metadata['modified_at']),
                 metadata=combined_metadata
+            )
+            
+            # Create LlamaIndex document with enhanced content for better RAG
+            llama_doc = LlamaDocument(
+                text=enhanced_content,  # Use enhanced content for indexing
+                metadata={
+                    "doc_id": doc_id,
+                    "title": file_path.stem,
+                    "type": doc_type.value,
+                    "file_path": str(file_path),
+                    **combined_metadata  # Include all extracted metadata
+                }
             )
             
             # Add to documents dictionary
@@ -876,15 +931,25 @@ class DocumentService:
             self.index = VectorStoreIndex([], storage_context=storage_context)
             print("Created new document index")
         
-        # Initialize query and chat engines
+        # Load app settings for engine configuration
+        settings = self._load_app_settings()
+        
+        # Initialize query engine with better RAG settings
         self.query_engine = self.index.as_query_engine(
-            similarity_top_k=3,
-            response_mode="tree_summarize"
+            similarity_top_k=5,  # Increased from 3 to get more context
+            response_mode="compact",  # Better for focused document responses
+            verbose=True  # Enable verbose logging for debugging
         )
         
+        # Initialize chat engine with RAG-optimized settings
         self.chat_engine = self.index.as_chat_engine(
-            chat_mode="condense_question",
-            verbose=True
+            chat_mode="context",  # Changed from "condense_question" to "context" for better document focus
+            similarity_top_k=5,  # Increased context
+            verbose=True,
+            system_prompt=f"""You are a document analysis assistant. Your responses must be based ONLY on the provided document context. 
+If information is not available in the documents, clearly state that you cannot find the information in the provided documents. 
+Always attribute your responses to the document content and avoid using general knowledge.
+Keep responses to approximately {settings['max_tokens']} tokens."""
         )
     
     def get_embedding_info(self) -> Dict[str, Any]:
@@ -1047,13 +1112,21 @@ class DocumentService:
             # Combine all metadata
             combined_metadata = {**file_metadata, **content_metadata}
             
+            # Enhance content for better RAG performance
+            enhanced_content = self._enhance_document_for_rag(content, {
+                'title': filename,
+                'document_type': doc_type.value,
+                'filename': filename,
+                **combined_metadata
+            })
+            
             # Create document record
             doc_id = str(uuid.uuid4())
             document = Document(
                 id=doc_id,
                 title=filename,
                 type=doc_type,
-                content=content,
+                content=content,  # Store original content
                 file_path=file_path,
                 status=DocumentStatus.PROCESSING,
                 size_bytes=file_metadata['size_bytes'],
@@ -1062,12 +1135,9 @@ class DocumentService:
                 metadata=combined_metadata
             )
             
-            # Add to documents dictionary
-            self.documents[doc_id] = document
-            
-            # Create LlamaIndex document and add to index
+            # Create LlamaIndex document with enhanced content for better RAG
             llama_doc = LlamaDocument(
-                text=content,
+                text=enhanced_content,  # Use enhanced content for indexing
                 metadata={
                     "doc_id": doc_id,
                     "title": filename,
@@ -1076,6 +1146,9 @@ class DocumentService:
                     **combined_metadata  # Include all extracted metadata
                 }
             )
+            
+            # Add to documents dictionary
+            self.documents[doc_id] = document
             
             # Add to index
             self.index.insert(llama_doc)
@@ -1166,22 +1239,70 @@ class DocumentService:
             soup = BeautifulSoup(html_content, 'html.parser')
             return soup.get_text()
     
+    def _enhance_document_for_rag(self, content: str, metadata: Dict[str, Any]) -> str:
+        """Enhance document content with contextual information for better RAG retrieval."""
+        
+        # Add document context header
+        title = metadata.get('title', 'Untitled Document')
+        doc_type = metadata.get('document_type', 'Unknown')
+        
+        context_header = f"""
+DOCUMENT CONTEXT:
+Title: {title}
+Type: {doc_type}
+Source: {metadata.get('filename', 'Unknown')}
+
+CONTENT:
+"""
+        
+        # Enhance content with better structure
+        enhanced_content = context_header + content
+        
+        # Add section markers for better chunking
+        if len(content) > 2000:  # For longer documents
+            # Try to identify natural section breaks
+            sections = content.split('\n\n')
+            if len(sections) > 1:
+                enhanced_sections = []
+                for i, section in enumerate(sections):
+                    if section.strip():
+                        enhanced_sections.append(f"SECTION {i+1}:\n{section.strip()}")
+                
+                if enhanced_sections:
+                    enhanced_content = context_header + '\n\n'.join(enhanced_sections)
+        
+        return enhanced_content
+
     async def query_documents(self, query: str, document_ids: Optional[List[str]] = None) -> str:
         """Query the document index with a natural language question."""
         try:
             if not self.query_engine:
                 raise ValueError("Query engine not initialized")
             
-            # Enhance the query to request markdown formatting
+            # Update LLM settings to ensure current max_tokens is used
+            self.update_llm_settings()
+            
+            # Enhanced RAG-focused prompt with strict instructions to use only document content
             enhanced_query = f"""
-Please answer the following question using information from the documents. 
-Format your response using markdown for better readability:
-- Use **bold** for important points
-- Use bullet points or numbered lists when appropriate
-- Use code blocks for any code examples
-- Use headers (##) to organize sections if the response is long
+SYSTEM INSTRUCTIONS: You are a document analysis assistant. You must ONLY use information from the provided documents to answer questions. Do NOT use your general knowledge or training data.
 
-Question: {query}
+RULES:
+1. ONLY answer based on information explicitly found in the provided documents
+2. If the documents don't contain the answer, say "I cannot find this information in the provided documents"
+3. Always cite which document sections your answer comes from when possible
+4. If you're uncertain about information, clearly state "According to the documents..." or "The documents suggest..."
+5. Do NOT make assumptions or add information not present in the documents
+
+FORMAT YOUR RESPONSE:
+- Use **bold** for important points from the documents
+- Use bullet points or numbered lists when the documents present information this way
+- Use > blockquotes for direct quotes from documents
+- Use ## headers to organize sections if the response is long
+- Always indicate uncertainty with phrases like "According to the documents" or "Based on the provided information"
+
+USER QUESTION: {query}
+
+Remember: Base your answer ONLY on the document content provided in the context. If the information isn't in the documents, explicitly state that.
 """
             
             # If specific documents are requested, we could filter here
@@ -1203,20 +1324,35 @@ Question: {query}
             if not self.chat_engine:
                 raise ValueError("Chat engine not initialized")
             
+            # Update LLM settings to ensure current max_tokens is used
+            self.update_llm_settings()
+            
             # Reset chat engine if new conversation
             if not conversation_history:
                 self.chat_engine.reset()
             
-            # Enhance the message to request markdown formatting
+            # Enhanced message with strong RAG-focused instructions
             enhanced_message = f"""
-{message}
+SYSTEM CONTEXT: You are having a conversation about documents. You must base all responses on the document content provided. Do NOT rely on general knowledge.
 
-Please format your response using markdown for better readability:
-- Use **bold** for important points and key information
-- Use bullet points or numbered lists for steps or multiple items
-- Use `code blocks` for any technical terms, commands, or code examples
-- Use headers (## Header) to organize longer responses
-- Use > blockquotes for important notes or warnings
+CONVERSATION RULES:
+1. ONLY use information from the provided documents in this conversation
+2. If asked about something not in the documents, say "I don't see that information in the documents we're discussing"
+3. Reference document content by saying "According to the documents..." or "The documents indicate..."
+4. Stay focused on the document content and don't introduce external information
+5. If you need to clarify something, ask about what's specifically in the documents
+
+USER MESSAGE: {message}
+
+FORMAT YOUR RESPONSE:
+- Use **bold** for important points and key information from documents
+- Use bullet points or numbered lists for steps or multiple items from documents
+- Use `code blocks` for any technical terms, commands, or code examples found in documents
+- Use ## headers to organize longer responses if needed
+- Use > blockquotes for important notes or direct quotes from documents
+- Always attribute information to "the documents" or "the provided information"
+
+Remember: This is a conversation about the document content. Keep responses grounded in what's actually in the documents.
 """
             
             response = self.chat_engine.chat(enhanced_message)
@@ -1348,13 +1484,18 @@ doc_id: {doc_id}
                 
                 # Update query and chat engines
                 self.query_engine = self.index.as_query_engine(
-                    similarity_top_k=3,
-                    response_mode="tree_summarize"
+                    similarity_top_k=5,
+                    response_mode="compact",
+                    verbose=True
                 )
                 
                 self.chat_engine = self.index.as_chat_engine(
-                    chat_mode="condense_question",
-                    verbose=True
+                    chat_mode="context",
+                    similarity_top_k=5,
+                    verbose=True,
+                    system_prompt="""You are a document analysis assistant. Your responses must be based ONLY on the provided document context. 
+If information is not available in the documents, clearly state that you cannot find the information in the provided documents. 
+Always attribute your responses to the document content and avoid using general knowledge."""
                 )
             
             # Mark as indexed
@@ -1429,4 +1570,35 @@ doc_id: {doc_id}
         return {
             doc_id: self.get_document_metadata(doc_id) 
             for doc_id in self.documents.keys()
-        } 
+        }
+
+    def update_llm_settings(self):
+        """Update LLM settings from current app settings."""
+        settings = self._load_app_settings()
+        
+        # Update the LLM's default max_tokens
+        if self.llm and hasattr(self.llm, 'set_default_max_tokens'):
+            self.llm.set_default_max_tokens(settings['max_tokens'])
+            print(f"Updated LLM max_tokens to: {settings['max_tokens']}")
+            
+            # Reinitialize engines to use updated settings
+            if self.index:
+                # Reinitialize query engine
+                self.query_engine = self.index.as_query_engine(
+                    similarity_top_k=5,
+                    response_mode="compact",
+                    verbose=True
+                )
+                
+                # Reinitialize chat engine with updated system prompt
+                self.chat_engine = self.index.as_chat_engine(
+                    chat_mode="context",
+                    similarity_top_k=5,
+                    verbose=True,
+                    system_prompt=f"""You are a document analysis assistant. Your responses must be based ONLY on the provided document context. 
+If information is not available in the documents, clearly state that you cannot find the information in the provided documents. 
+Always attribute your responses to the document content and avoid using general knowledge.
+Keep responses to approximately {settings['max_tokens']} tokens."""
+                )
+                
+                print("Reinitialize engines with updated settings") 
