@@ -640,13 +640,11 @@ class DocumentService:
             metadata['line_count'] = content.count('\n') + 1
             metadata['paragraph_count'] = len([p for p in content.split('\n\n') if p.strip()])
             
-            # Character analysis
-            metadata['character_counts'] = {
-                'letters': sum(c.isalpha() for c in content),
-                'digits': sum(c.isdigit() for c in content),
-                'whitespace': sum(c.isspace() for c in content),
-                'punctuation': sum(not c.isalnum() and not c.isspace() for c in content)
-            }
+            # Character analysis - store as simple integer counts instead of dict
+            metadata['character_letters'] = sum(c.isalpha() for c in content)
+            metadata['character_digits'] = sum(c.isdigit() for c in content)
+            metadata['character_whitespace'] = sum(c.isspace() for c in content)
+            metadata['character_punctuation'] = sum(not c.isalnum() and not c.isspace() for c in content)
             
             # Language detection (basic)
             if content.strip():
@@ -934,9 +932,9 @@ class DocumentService:
         # Load app settings for engine configuration
         settings = self._load_app_settings()
         
-        # Initialize query engine with better RAG settings
+        # Initialize query engine with reduced context to fit within 2048 tokens
         self.query_engine = self.index.as_query_engine(
-            similarity_top_k=5,  # Increased from 3 to get more context
+            similarity_top_k=2,  # Reduced from 5 to 2 to save tokens
             response_mode="compact",  # Better for focused document responses
             verbose=True  # Enable verbose logging for debugging
         )
@@ -944,12 +942,9 @@ class DocumentService:
         # Initialize chat engine with RAG-optimized settings
         self.chat_engine = self.index.as_chat_engine(
             chat_mode="context",  # Changed from "condense_question" to "context" for better document focus
-            similarity_top_k=5,  # Increased context
+            similarity_top_k=2,  # Reduced from 5 to 2 to save tokens
             verbose=True,
-            system_prompt=f"""You are a document analysis assistant. Your responses must be based ONLY on the provided document context. 
-If information is not available in the documents, clearly state that you cannot find the information in the provided documents. 
-Always attribute your responses to the document content and avoid using general knowledge.
-Keep responses to approximately {settings['max_tokens']} tokens."""
+            system_prompt=f"""You are a document assistant. Answer using only document content. Keep responses under {settings['max_tokens']} tokens."""
         )
     
     def get_embedding_info(self) -> Dict[str, Any]:
@@ -1282,28 +1277,18 @@ CONTENT:
             # Update LLM settings to ensure current max_tokens is used
             self.update_llm_settings()
             
-            # Enhanced RAG-focused prompt with strict instructions to use only document content
-            enhanced_query = f"""
-SYSTEM INSTRUCTIONS: You are a document analysis assistant. You must ONLY use information from the provided documents to answer questions. Do NOT use your general knowledge or training data.
+            # Much more concise prompt to save tokens
+            enhanced_query = f"""You are a document assistant. Answer based ONLY on the provided documents.
 
-RULES:
-1. ONLY answer based on information explicitly found in the provided documents
-2. If the documents don't contain the answer, say "I cannot find this information in the provided documents"
-3. Always cite which document sections your answer comes from when possible
-4. If you're uncertain about information, clearly state "According to the documents..." or "The documents suggest..."
-5. Do NOT make assumptions or add information not present in the documents
+Rules:
+- Only use document information
+- If not in documents, say "Not found in documents"
+- Use **bold** for key points
+- Cite sources when possible
 
-FORMAT YOUR RESPONSE:
-- Use **bold** for important points from the documents
-- Use bullet points or numbered lists when the documents present information this way
-- Use > blockquotes for direct quotes from documents
-- Use ## headers to organize sections if the response is long
-- Always indicate uncertainty with phrases like "According to the documents" or "Based on the provided information"
+Question: {query}
 
-USER QUESTION: {query}
-
-Remember: Base your answer ONLY on the document content provided in the context. If the information isn't in the documents, explicitly state that.
-"""
+Answer based on documents:"""
             
             # If specific documents are requested, we could filter here
             # For now, query across all documents
@@ -1331,29 +1316,20 @@ Remember: Base your answer ONLY on the document content provided in the context.
             if not conversation_history:
                 self.chat_engine.reset()
             
-            # Enhanced message with strong RAG-focused instructions
-            enhanced_message = f"""
-SYSTEM CONTEXT: You are having a conversation about documents. You must base all responses on the document content provided. Do NOT rely on general knowledge.
+            # Much more concise prompt to save tokens
+            enhanced_message = f"""You are chatting about documents. Use ONLY document content.
 
-CONVERSATION RULES:
-1. ONLY use information from the provided documents in this conversation
-2. If asked about something not in the documents, say "I don't see that information in the documents we're discussing"
-3. Reference document content by saying "According to the documents..." or "The documents indicate..."
-4. Stay focused on the document content and don't introduce external information
-5. If you need to clarify something, ask about what's specifically in the documents
+Rules:
+- Answer from documents only
+- Say "Not in documents" if info missing
+- Use **bold** for key points
+- Reference document content
 
-USER MESSAGE: {message}
-
-FORMAT YOUR RESPONSE:
-- Use **bold** for important points and key information from documents
-- Use bullet points or numbered lists for steps or multiple items from documents
-- Use `code blocks` for any technical terms, commands, or code examples found in documents
-- Use ## headers to organize longer responses if needed
-- Use > blockquotes for important notes or direct quotes from documents
-- Always attribute information to "the documents" or "the provided information"
-
-Remember: This is a conversation about the document content. Keep responses grounded in what's actually in the documents.
+User: {message}
 """
+            
+            # Truncate message if needed to prevent context overflow
+            enhanced_message = self._truncate_prompt_if_needed(enhanced_message, max_context_tokens=2048, reserve_tokens=512)
             
             response = self.chat_engine.chat(enhanced_message)
             response_text = str(response)
@@ -1484,14 +1460,14 @@ doc_id: {doc_id}
                 
                 # Update query and chat engines
                 self.query_engine = self.index.as_query_engine(
-                    similarity_top_k=5,
+                    similarity_top_k=2,
                     response_mode="compact",
                     verbose=True
                 )
                 
                 self.chat_engine = self.index.as_chat_engine(
                     chat_mode="context",
-                    similarity_top_k=5,
+                    similarity_top_k=2,
                     verbose=True,
                     system_prompt="""You are a document analysis assistant. Your responses must be based ONLY on the provided document context. 
 If information is not available in the documents, clearly state that you cannot find the information in the provided documents. 
@@ -1585,7 +1561,7 @@ Always attribute your responses to the document content and avoid using general 
             if self.index:
                 # Reinitialize query engine
                 self.query_engine = self.index.as_query_engine(
-                    similarity_top_k=5,
+                    similarity_top_k=2,
                     response_mode="compact",
                     verbose=True
                 )
@@ -1593,12 +1569,71 @@ Always attribute your responses to the document content and avoid using general 
                 # Reinitialize chat engine with updated system prompt
                 self.chat_engine = self.index.as_chat_engine(
                     chat_mode="context",
-                    similarity_top_k=5,
+                    similarity_top_k=2,
                     verbose=True,
-                    system_prompt=f"""You are a document analysis assistant. Your responses must be based ONLY on the provided document context. 
-If information is not available in the documents, clearly state that you cannot find the information in the provided documents. 
-Always attribute your responses to the document content and avoid using general knowledge.
-Keep responses to approximately {settings['max_tokens']} tokens."""
+                    system_prompt=f"""You are a document assistant. Answer using only document content. Keep responses under {settings['max_tokens']} tokens."""
                 )
                 
-                print("Reinitialize engines with updated settings") 
+                print("Reinitialize engines with updated settings")
+    
+    def _truncate_prompt_if_needed(self, prompt: str, max_context_tokens: int = 2048, reserve_tokens: int = 512) -> str:
+        """Truncate prompt if it exceeds context window, leaving room for response."""
+        # Simple token estimation (rough approximation: 1 token ≈ 4 characters)
+        estimated_tokens = len(prompt) // 4
+        max_prompt_tokens = max_context_tokens - reserve_tokens
+        
+        if estimated_tokens > max_prompt_tokens:
+            # Calculate how many characters to keep
+            max_chars = max_prompt_tokens * 4
+            
+            # Try to truncate at a sentence boundary
+            truncated = prompt[:max_chars]
+            
+            # Find the last complete sentence
+            last_period = truncated.rfind('.')
+            last_newline = truncated.rfind('\n')
+            
+            # Use whichever boundary is closer to the end
+            if last_period > len(truncated) * 0.8:  # If period is in last 20%
+                truncated = truncated[:last_period + 1]
+            elif last_newline > len(truncated) * 0.8:  # If newline is in last 20%
+                truncated = truncated[:last_newline]
+            
+            # Add truncation notice
+            truncated += "\n\n[Note: Content truncated due to length limitations]"
+            
+            print(f"Truncated prompt from ~{estimated_tokens} to ~{len(truncated)//4} tokens")
+            return truncated
+        
+        return prompt 
+
+    def _summarize_document_content(self, content: str, max_length: int = 500) -> str:
+        """Summarize document content to key points to save tokens."""
+        if len(content) <= max_length:
+            return content
+        
+        # Split into sentences
+        sentences = [s.strip() for s in content.split('.') if s.strip()]
+        
+        # If still too long, take first portion and key sentences
+        if len(' '.join(sentences)) > max_length:
+            # Take first few sentences
+            summary_parts = sentences[:3]
+            remaining_length = max_length - len(' '.join(summary_parts))
+            
+            # Look for sentences with key terms
+            key_terms = ['important', 'key', 'main', 'primary', 'essential', 'critical', 'summary', 'conclusion']
+            key_sentences = []
+            
+            for sentence in sentences[3:]:
+                if any(term in sentence.lower() for term in key_terms) and len(' '.join(key_sentences)) < remaining_length//2:
+                    key_sentences.append(sentence)
+            
+            # Combine and truncate if needed
+            full_summary = ' '.join(summary_parts + key_sentences)
+            if len(full_summary) > max_length:
+                full_summary = full_summary[:max_length] + "..."
+            
+            return full_summary
+        
+        return ' '.join(sentences) 
