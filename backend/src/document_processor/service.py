@@ -986,7 +986,16 @@ class DocumentService:
             chat_mode="context",  # Changed from "condense_question" to "context" for better document focus
             similarity_top_k=3,  # Increased back to 3 since we have 32K context window
             verbose=True,
-            system_prompt=f"""You are a document assistant. Answer using only document content. Keep responses under {settings['max_tokens']} tokens."""
+            system_prompt=f"""You are a document analysis assistant. Your responses must be based ONLY on the provided document context.
+
+STRICT RULES:
+1. ONLY answer questions that can be directly answered from the document context provided
+2. If the document context does not contain the information needed to answer the question, respond with: "I cannot find information about [topic] in the provided documents."
+3. Do NOT use any general knowledge or information not explicitly stated in the documents
+4. ALWAYS cite or reference the specific document when providing answers
+5. Keep responses under {settings['max_tokens']} tokens
+
+Remember: If it's not in the documents, you cannot answer it."""
         )
     
     def get_embedding_info(self) -> Dict[str, Any]:
@@ -1611,9 +1620,16 @@ doc_id: {doc_id}
                     chat_mode="context",
                     similarity_top_k=3,
                     verbose=True,
-                    system_prompt="""You are a document analysis assistant. Your responses must be based ONLY on the provided document context. 
-If information is not available in the documents, clearly state that you cannot find the information in the provided documents. 
-Always attribute your responses to the document content and avoid using general knowledge."""
+                    system_prompt="""You are a document analysis assistant. Your responses must be based ONLY on the provided document context.
+
+STRICT RULES:
+1. ONLY answer questions that can be directly answered from the document context provided
+2. If the document context does not contain the information needed to answer the question, respond with: "I cannot find information about [topic] in the provided documents."
+3. Do NOT use any general knowledge or information not explicitly stated in the documents
+4. ALWAYS cite or reference the specific document when providing answers
+5. Keep responses under {settings['max_tokens']} tokens
+
+Remember: If it's not in the documents, you cannot answer it."""
                 )
             
             # Mark as indexed
@@ -1713,7 +1729,16 @@ Always attribute your responses to the document content and avoid using general 
                     chat_mode="context",
                     similarity_top_k=3,
                     verbose=True,
-                    system_prompt=f"""You are a document assistant. Answer using only document content. Keep responses under {settings['max_tokens']} tokens."""
+                    system_prompt=f"""You are a document analysis assistant. Your responses must be based ONLY on the provided document context.
+
+STRICT RULES:
+1. ONLY answer questions that can be directly answered from the document context provided
+2. If the document context does not contain the information needed to answer the question, respond with: "I cannot find information about [topic] in the provided documents."
+3. Do NOT use any general knowledge or information not explicitly stated in the documents
+4. ALWAYS cite or reference the specific document when providing answers
+5. Keep responses under {settings['max_tokens']} tokens
+
+Remember: If it's not in the documents, you cannot answer it."""
                 )
                 
                 print("Reinitialize engines with updated settings")

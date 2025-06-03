@@ -449,6 +449,41 @@ export const modelsAPI = {
     const response = await api.get(`/models/gpt4all/download-status/${filename}`);
     return response.data;
   },
+
+  // Settings endpoints
+  async getSettings(): Promise<{
+    success: boolean;
+    max_tokens: number;
+    temperature: number;
+    use_document_context: boolean;
+    enable_notifications: boolean;
+  }> {
+    const response = await api.get('/models/settings');
+    return response.data;
+  },
+
+  async updateSettings(settings: {
+    max_tokens?: number;
+    temperature?: number;
+    use_document_context?: boolean;
+    enable_notifications?: boolean;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    settings: any;
+  }> {
+    const response = await api.post('/models/settings', settings);
+    return response.data;
+  },
+
+  async resetSettings(): Promise<{
+    success: boolean;
+    message: string;
+    settings: any;
+  }> {
+    const response = await api.post('/models/settings/reset');
+    return response.data;
+  },
 };
 
 export default api; 
