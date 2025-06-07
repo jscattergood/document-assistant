@@ -8,11 +8,14 @@ An AI-powered application for analyzing documents and web pages, helping create 
 - **🤖 Dual AI Models**: 
   - **BERT Embeddings** - 6 advanced models for document understanding and semantic search
   - **GPT4All Language Models** - Local LLMs for chat and content generation (Llama 3, Mistral, etc.)
+  - **Ollama Integration** - Advanced local LLM support with automatic process management
 - **🔗 Confluence Integration**: Read existing pages and generate new Confluence content
 - **💬 AI-Powered Chat**: Query your documents using natural language with intelligent context
 - **✍️ Document Generation**: AI-assisted creation of new documents and pages
 - **📊 Rich Metadata**: Advanced file analysis including content statistics, format-specific data
 - **🛠️ Model Management**: Easy download, switch, and manage AI models through the UI
+- **⚙️ Ollama Process Control**: Start, stop, restart, and monitor Ollama from the web interface
+- **🚀 Auto-Start**: Optionally auto-start Ollama when the backend starts
 - **🔒 Offline Operation**: Works completely offline - your data never leaves your device
 - **🎨 Modern UI**: Beautiful React-based interface with tabbed settings and real-time status
 
@@ -37,12 +40,19 @@ chmod +x setup.sh
 
 ### 2️⃣ Download AI Models
 
-The application uses two types of AI models:
+The application uses three types of AI models:
 
 **BERT Embedding Models** (downloaded automatically):
 - `all-MiniLM-L6-v2` (384D) - Default, fast
 - `all-mpnet-base-v2` (768D) - **Recommended** for best quality
 - `bert-base-uncased`, `distilbert`, `roberta` - Additional options
+
+**GPT4All Language Models** (download via UI or manually):
+
+**Ollama Models** (managed through Ollama):
+- Install [Ollama](https://ollama.ai) separately
+- Download models via `ollama pull llama3.2:3b`
+- Application provides automatic process management
 
 **GPT4All Language Models** (download via UI or manually):
 
@@ -101,6 +111,12 @@ docker-compose up --build
    - **Phi-3 Mini**: Microsoft's efficient model  
    - **Mistral 7B**: Great for general tasks
 
+3. **Settings → Ollama Management**: Control Ollama process and models
+   - **Process Control**: Start, stop, restart Ollama from the UI
+   - **Auto-Start**: Configure automatic startup when backend starts
+   - **Model Management**: Switch between downloaded Ollama models
+   - **Status Monitoring**: Real-time process and API status
+
 ### Chat & Generation
 1. **Chat**: Ask questions about your documents
 2. **Generate**: Create new content based on your knowledge base
@@ -122,6 +138,8 @@ docker-compose up --build
 | **Language** | Phi-3 Mini | 2.2GB | 6GB | Fast | General chat |
 | **Language** | Llama 3 8B | 4.7GB | 8GB | Medium | **High quality** |
 | **Language** | Mistral 7B | 4.1GB | 8GB | Medium | Balanced |
+| **Ollama** | Llama 3.2:3b | 2.0GB | 4GB | Fast | **Recommended Ollama** |
+| **Ollama** | Llama 3.2:1b | 1.3GB | 3GB | Very Fast | Lightweight |
 
 ### Environment Variables
 
@@ -135,12 +153,34 @@ HOST=0.0.0.0
 GPT4ALL_MODEL_PATH=../data/models
 EMBEDDING_MODEL=all-mpnet-base-v2
 
+# Ollama (Optional)
+OLLAMA_HOST=http://localhost:11434
+AUTO_START_OLLAMA=false
+
 # Confluence (Optional)
 CONFLUENCE_URL=https://your-domain.atlassian.net
 CONFLUENCE_USERNAME=your-email@domain.com  
 CONFLUENCE_API_TOKEN=your-api-token
 CONFLUENCE_SPACE_KEY=YOUR_SPACE
 ```
+
+### Application Settings
+
+The `data/app_settings.json` file contains application configuration:
+```json
+{
+  "embedding_model": "all-mpnet-base-v2",
+  "llm_provider": "ollama",
+  "preferred_ollama_model": "llama3.2:3b",
+  "auto_start_ollama": false,
+  "max_tokens": 512
+}
+```
+
+**Key Settings**:
+- `llm_provider`: "gpt4all" or "ollama"
+- `auto_start_ollama`: Automatically start Ollama on backend startup
+- `preferred_ollama_model`: Default Ollama model to use
 
 ## Tech Stack
 
@@ -288,6 +328,14 @@ MIT License - see LICENSE file for details
 - `POST /api/models/gpt4all/download` - Download language model
 - `POST /api/models/gpt4all/upload` - Upload custom model
 
+### Ollama Management API
+- `GET /api/models/ollama/status` - Get Ollama process status
+- `POST /api/models/ollama/start` - Start Ollama process
+- `POST /api/models/ollama/stop` - Stop Ollama process  
+- `POST /api/models/ollama/restart` - Restart Ollama process
+- `GET /api/models/ollama/models` - List available Ollama models
+- `POST /api/models/providers/set` - Switch between GPT4All and Ollama
+
 **Full API Documentation**: http://localhost:8000/docs (when running)
 
 ## 🔧 Development
@@ -343,6 +391,12 @@ mkdir -p data/{documents,confluence,models,chroma_db}
 - Download a model via Settings → Language Models
 - Or manually place `.gguf` files in `./data/models/`
 
+**"Ollama model not available"**
+- Install Ollama from https://ollama.ai
+- Use Settings → Ollama Management to start Ollama
+- Download models: `ollama pull llama3.2:3b`
+- Switch provider in Settings → Language Models
+
 **Memory/Performance Issues**  
 - Use smaller models (Phi-3 Mini instead of Llama 3)
 - Close other applications
@@ -359,6 +413,14 @@ mkdir -p data/{documents,confluence,models,chroma_db}
 **Docker Port Conflicts**
 - Ensure ports 3000, 8000, 8001 are available
 - Modify `docker-compose.yml` port mappings if needed
+
+**Ollama Issues**
+- **Installation**: Download from https://ollama.ai
+- **Port conflicts**: Ollama uses port 11434 by default
+- **Process not starting**: Check Settings → Ollama Management for status
+- **Models not loading**: Download with `ollama pull model-name`
+- **API not responding**: Restart via Settings or `ollama serve`
+- **Auto-start failed**: Check logs and manually start Ollama first
 
 ### Device Support
 - **NVIDIA GPU**: CUDA support automatically detected

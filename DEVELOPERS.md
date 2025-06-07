@@ -20,6 +20,35 @@ This document contains technical implementation details for contributors and dev
 
 ## 🤖 AI Model Integration
 
+### Ollama Integration
+
+**Implementation**: `backend/src/api/models.py` (lines 1047-1354) and `backend/src/document_processor/service.py` (lines 307-430)
+
+**Process Management**:
+- **Auto-detection**: Platform-specific process detection (macOS, Linux, Windows)
+- **Multiple start methods**: brew services, systemctl, direct execution
+- **Status monitoring**: Real-time process and API status checking
+- **Control capability**: Determines if Ollama can be controlled based on command availability
+
+**Key Features**:
+```python
+# Ollama Process Status
+{
+    "running": bool,        # Process is running
+    "responding": bool,     # API is responding
+    "process_id": str,      # Process ID if running
+    "can_control": bool,    # Can start/stop/restart
+    "version": str,         # Ollama version
+    "models": List[str],    # Available models
+    "platform": str         # Operating system
+}
+```
+
+**Auto-start Configuration**: 
+- Configured via `data/app_settings.json`
+- Triggered on backend startup if enabled
+- Supports platform-specific startup methods
+
 ### BERT Embedding Models
 
 **Implementation**: `backend/src/document_processor/service.py` (lines 33-174)
@@ -146,6 +175,15 @@ def _extract_markdown_metadata(self, content: str) -> Dict[str, Any]:
 - `DELETE /api/models/gpt4all/{filename}` - Delete model
 - `POST /api/models/gpt4all/set-active` - Set active model
 
+**Ollama Integration**:
+- `GET /api/models/ollama/status` - Get detailed process status
+- `POST /api/models/ollama/start` - Start Ollama process
+- `POST /api/models/ollama/stop` - Stop Ollama process
+- `POST /api/models/ollama/restart` - Restart Ollama process
+- `GET /api/models/ollama/models` - List available Ollama models
+- `GET /api/models/providers/current` - Get current LLM provider
+- `POST /api/models/providers/set` - Switch between GPT4All and Ollama
+
 ### Document Operations
 - `POST /api/documents/upload` - Upload with metadata extraction
 - `GET /api/documents/{id}/metadata` - Get detailed metadata
@@ -164,6 +202,20 @@ enum SettingsTabs {
   STORAGE_SYSTEM = 2,
   APPLICATION = 3
 }
+```
+
+**Ollama Management Section**:
+```typescript
+// State management for Ollama process control
+const [ollamaStatus, setOllamaStatus] = useState<any>(null);
+const [loadingOllamaStatus, setLoadingOllamaStatus] = useState(false);
+const [controllingOllama, setControllingOllama] = useState(false);
+const [autoStartOllama, setAutoStartOllama] = useState(false);
+
+// Process control functions
+const handleStartOllama = async () => { /* ... */ };
+const handleStopOllama = async () => { /* ... */ };
+const handleRestartOllama = async () => { /* ... */ };
 ```
 
 **State Management**:
