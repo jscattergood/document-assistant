@@ -21,6 +21,9 @@ import {
   SmartToy,
   Person,
   Error,
+  History,
+  Add,
+  ChatBubble,
 } from '@mui/icons-material';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -29,30 +32,40 @@ import rehypeRaw from 'rehype-raw';
 import 'highlight.js/styles/github.css';
 import { chatAPI, documentAPI } from '../services/api';
 import type { Document } from '../services/api';
+import { chatStorage, type ChatMessage } from '../utils/chatStorage';
+import ChatHistorySidebar from '../components/ChatHistorySidebar';
 import toast from 'react-hot-toast';
-
-interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: Date;
-  error?: boolean;
-}
 
 const ChatPage: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string>('');
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [historySidebarOpen, setHistorySidebarOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchDocuments();
+    loadChatHistory();
   }, []);
 
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Save messages to IndexedDB whenever messages change (but not when loading from history)
+  useEffect(() => {
+    if (currentSessionId && messages.length > 0 && !loadingHistory) {
+      // Add a small delay to avoid race conditions when switching sessions
+      const timeoutId = setTimeout(() => {
+        saveChatHistory();
+      }, 100);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [messages, currentSessionId, loadingHistory]);
 
   const fetchDocuments = async () => {
     try {
@@ -62,6 +75,44 @@ const ChatPage: React.FC = () => {
       }
     } catch (error) {
       console.error('Error fetching documents:', error);
+    }
+  };
+
+  const loadChatHistory = async () => {
+    try {
+      setLoadingHistory(true);
+      
+      // First, try to get the most recent session
+      const allSessions = await chatStorage.getAllSessions();
+      
+      let sessionId: string;
+      if (allSessions.length > 0) {
+        // Use the most recent session (sessions are sorted by updatedAt desc)
+        sessionId = allSessions[0].id;
+
+      } else {
+        // No sessions exist, create a new one
+        sessionId = chatStorage.createNewSessionId();
+
+      }
+      
+      setCurrentSessionId(sessionId);
+      const savedMessages = await chatStorage.loadMessages(sessionId);
+      setMessages(savedMessages);
+    } catch (error) {
+      console.error('Error loading chat history:', error);
+      toast.error('Failed to load chat history');
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const saveChatHistory = async () => {
+    try {
+      await chatStorage.saveMessages(currentSessionId, messages);
+    } catch (error) {
+      console.error('Error saving chat history:', error);
+      // Don't show error toast for saving issues to avoid spam
     }
   };
 
@@ -141,8 +192,42 @@ const ChatPage: React.FC = () => {
     }
   };
 
-  const clearChat = () => {
-    setMessages([]);
+  const startNewChat = async () => {
+    try {
+      setMessages([]);
+      // Create a new session for the next conversation
+      const newSessionId = chatStorage.createNewSessionId();
+      setCurrentSessionId(newSessionId);
+      toast.success('Started a new chat session!');
+    } catch (error) {
+      console.error('Error starting new chat:', error);
+      toast.error('Failed to start new chat');
+    }
+  };
+
+  const handleSessionSelect = async (sessionId: string) => {
+    try {
+      setLoadingHistory(true);
+      
+      // Set the session ID first, then load messages
+      setCurrentSessionId(sessionId);
+      const sessionMessages = await chatStorage.loadMessages(sessionId);
+      setMessages(sessionMessages);
+      
+      // Scroll to bottom after messages are loaded
+      setTimeout(() => {
+        scrollToBottom();
+      }, 100);
+    } catch (error) {
+      console.error('Error loading session:', error);
+      toast.error('Failed to load chat session');
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const handleNewSession = () => {
+    startNewChat();
   };
 
   const formatTime = (date: Date) => {
@@ -155,13 +240,34 @@ const ChatPage: React.FC = () => {
   return (
     <Container maxWidth="xl" sx={{ py: 4, height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <Box sx={{ mb: 4 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        {/* Centered Title */}
+        <Box sx={{ textAlign: 'center', mb: 2 }}>
           <Typography variant="h1" component="h1">
             Chat with Documents
           </Typography>
+        </Box>
+        
+        {/* Action Buttons - Centered below title */}
+        <Box sx={{ 
+          display: 'flex', 
+          justifyContent: 'center', 
+          gap: 2, 
+          mb: 2 
+        }}>
+          <Button
+            variant="outlined"
+            startIcon={<History />}
+            onClick={() => setHistorySidebarOpen(true)}
+          >
+            History
+          </Button>
           {messages.length > 0 && (
-            <Button variant="outlined" onClick={clearChat}>
-              Clear Chat
+            <Button
+              variant="outlined"
+              startIcon={<ChatBubble />}
+              onClick={startNewChat}
+            >
+              New Chat
             </Button>
           )}
         </Box>
@@ -180,7 +286,16 @@ const ChatPage: React.FC = () => {
       <Paper elevation={2} sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
         {/* Chat Messages Area */}
         <Box sx={{ flexGrow: 1, p: 4, overflowY: 'auto', maxHeight: 'calc(100vh - 300px)' }}>
-          {messages.length === 0 ? (
+          {loadingHistory ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 8 }}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                <CircularProgress />
+                <Typography variant="body2" color="text.secondary">
+                  Loading chat history...
+                </Typography>
+              </Box>
+            </Box>
+          ) : messages.length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 8 }}>
               <SmartToy sx={{ fontSize: 64, color: 'primary.main', mb: 2 }} />
               <Typography variant="h5" sx={{ mb: 2 }}>
@@ -380,6 +495,15 @@ const ChatPage: React.FC = () => {
           </Box>
         </Box>
       </Paper>
+
+      {/* Chat History Sidebar */}
+      <ChatHistorySidebar
+        open={historySidebarOpen}
+        onClose={() => setHistorySidebarOpen(false)}
+        currentSessionId={currentSessionId}
+        onSessionSelect={handleSessionSelect}
+        onNewSession={handleNewSession}
+      />
     </Container>
   );
 };
