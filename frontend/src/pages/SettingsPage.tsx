@@ -61,6 +61,9 @@ import {
   Folder,
   Assessment,
   Launch,
+  Stop,
+  RestartAlt,
+  PowerSettingsNew,
 } from '@mui/icons-material';
 import { useDropzone } from 'react-dropzone';
 import { modelsAPI } from '../services/api';
@@ -131,12 +134,19 @@ const SettingsPage: React.FC = () => {
   const [loadingProvider, setLoadingProvider] = useState(false);
   const [switchingProvider, setSwitchingProvider] = useState(false);
 
+  // Ollama Process Management State
+  const [ollamaStatus, setOllamaStatus] = useState<any>(null);
+  const [loadingOllamaStatus, setLoadingOllamaStatus] = useState(false);
+  const [controllingOllama, setControllingOllama] = useState(false);
+  const [autoStartOllama, setAutoStartOllama] = useState(false);
+
   useEffect(() => {
     loadModelInfo();
     loadStorageInfo();
     loadGpt4allModels();
     loadAppSettings();
     loadProviderInfo();
+    loadOllamaStatus();
   }, []);
 
   const loadModelInfo = async () => {
@@ -283,6 +293,93 @@ const SettingsPage: React.FC = () => {
       toast.error(error.response?.data?.detail || 'Failed to switch provider');
     } finally {
       setSwitchingProvider(false);
+    }
+  };
+
+  const loadOllamaStatus = async () => {
+    setLoadingOllamaStatus(true);
+    try {
+      const response = await modelsAPI.getOllamaStatus();
+      if (response.success) {
+        setOllamaStatus(response);
+        // For UI purposes, consider Ollama "running" if it's responding
+        // This will show the correct buttons based on actual functionality
+        setOllamaRunning(response.responding);
+        setOllamaModels(response.models);
+      } else {
+        console.error('Ollama status API returned success: false', response);
+      }
+    } catch (error) {
+      console.error('Error loading Ollama status:', error);
+      // Reset status on error
+      setOllamaStatus(null);
+      setOllamaRunning(false);
+      setOllamaModels([]);
+    } finally {
+      setLoadingOllamaStatus(false);
+    }
+  };
+
+  const handleStartOllama = async () => {
+    setControllingOllama(true);
+    try {
+      const response = await modelsAPI.startOllama();
+      if (response.success) {
+        toast.success(response.message);
+        // Reload status and provider info
+        await loadOllamaStatus();
+        await loadProviderInfo();
+      } else {
+        toast.error(response.message);
+        if (response.install_url) {
+          toast('Please install Ollama first');
+        }
+      }
+    } catch (error: any) {
+      console.error('Error starting Ollama:', error);
+      toast.error(error.response?.data?.detail || 'Failed to start Ollama');
+    } finally {
+      setControllingOllama(false);
+    }
+  };
+
+  const handleStopOllama = async () => {
+    setControllingOllama(true);
+    try {
+      const response = await modelsAPI.stopOllama();
+      if (response.success) {
+        toast.success(response.message);
+        // Reload status and provider info
+        await loadOllamaStatus();
+        await loadProviderInfo();
+      } else {
+        toast.error(response.message);
+      }
+    } catch (error: any) {
+      console.error('Error stopping Ollama:', error);
+      toast.error(error.response?.data?.detail || 'Failed to stop Ollama');
+    } finally {
+      setControllingOllama(false);
+    }
+  };
+
+  const handleRestartOllama = async () => {
+    setControllingOllama(true);
+    try {
+      const response = await modelsAPI.restartOllama();
+      if (response.success) {
+        toast.success(response.message);
+        // Reload status and provider info
+        await loadOllamaStatus();
+        await loadProviderInfo();
+      } else {
+        toast.error(response.message);
+      }
+    } catch (error: any) {
+      console.error('Error restarting Ollama:', error);
+      toast.error(error.response?.data?.detail || 'Failed to restart Ollama');
+    } finally {
+      setControllingOllama(false);
     }
   };
 
@@ -1119,177 +1216,274 @@ const SettingsPage: React.FC = () => {
               </Typography>
             </Box>
 
-            {loadingProvider ? (
+            {loadingProvider || loadingOllamaStatus ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
                 <CircularProgress />
               </Box>
-            ) : !ollamaRunning ? (
-              <Card sx={{ mb: 3, border: '2px solid', borderColor: 'warning.main' }}>
-                <CardContent>
-                  <Box sx={{ textAlign: 'center', p: 3 }}>
-                    <Warning sx={{ fontSize: 48, color: 'warning.main', mb: 2 }} />
-                    <Typography variant="h6" sx={{ mb: 1 }}>
-                      Ollama Not Running
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                      Ollama needs to be installed and running to manage models
-                    </Typography>
-                    <Button
-                      variant="outlined"
-                      href="https://ollama.ai"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      startIcon={<Launch />}
-                    >
-                      Install Ollama
-                    </Button>
-                  </Box>
-                </CardContent>
-              </Card>
             ) : (
               <>
-                {/* Ollama Status */}
-                <Card sx={{ mb: 3, border: '2px solid', borderColor: 'success.main' }}>
+                {/* Ollama Process Management Section */}
+                <Card sx={{ mb: 3, border: '2px solid', borderColor: ollamaRunning ? 'success.main' : 'warning.main' }}>
                   <CardContent>
-                    <Box sx={{ display: 'flex', alignItems: 'center', p: 2 }}>
-                      <CheckCircle sx={{ fontSize: 40, color: 'success.main', mr: 2 }} />
-                      <Box>
-                        <Typography variant="h6" color="success.main">
-                          Ollama Connected
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {ollamaModels.length} model{ollamaModels.length !== 1 ? 's' : ''} available
-                        </Typography>
+                    <Box sx={{ p: 2 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                          {ollamaRunning ? (
+                            <CheckCircle sx={{ fontSize: 40, color: 'success.main', mr: 2 }} />
+                          ) : (
+                            <Warning sx={{ fontSize: 40, color: 'warning.main', mr: 2 }} />
+                          )}
+                          <Box>
+                            <Typography variant="h6" color={ollamaRunning ? 'success.main' : 'warning.main'}>
+                              Ollama {ollamaRunning ? 'Running' : 'Not Running'}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              {ollamaStatus ? (
+                                <>
+                                  {ollamaStatus.platform} • {ollamaStatus.version ? `v${ollamaStatus.version}` : 'Unknown version'}
+                                  {ollamaStatus.process_id && ` • PID: ${ollamaStatus.process_id}`}
+                                </>
+                              ) : (
+                                'Status unknown'
+                              )}
+                            </Typography>
+                          </Box>
+                        </Box>
+                        
+                        {/* Process Control Buttons */}
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                          {/* Always show control buttons, but disable if can't control */}
+                          {!ollamaRunning ? (
+                            <Button
+                              variant="contained"
+                              color="success"
+                              startIcon={<PlayArrow />}
+                              onClick={handleStartOllama}
+                              disabled={controllingOllama || !ollamaStatus?.can_control}
+                              size="small"
+                            >
+                              {controllingOllama ? 'Starting...' : (ollamaStatus?.running ? 'Restart' : 'Start')}
+                            </Button>
+                          ) : (
+                            <>
+                              <Button
+                                variant="outlined"
+                                color="warning"
+                                startIcon={<RestartAlt />}
+                                onClick={handleRestartOllama}
+                                disabled={controllingOllama || !ollamaStatus?.can_control}
+                                size="small"
+                              >
+                                {controllingOllama ? 'Restarting...' : 'Restart'}
+                              </Button>
+                              <Button
+                                variant="outlined"
+                                color="error"
+                                startIcon={<Stop />}
+                                onClick={handleStopOllama}
+                                disabled={controllingOllama || !ollamaStatus?.can_control}
+                                size="small"
+                              >
+                                {controllingOllama ? 'Stopping...' : 'Stop'}
+                              </Button>
+                            </>
+                          )}
+                          
+                          <Button
+                            variant="outlined"
+                            startIcon={<Refresh />}
+                            onClick={loadOllamaStatus}
+                            disabled={loadingOllamaStatus}
+                            size="small"
+                          >
+                            Refresh
+                          </Button>
+                        </Box>
                       </Box>
+                      
+                      {/* Status Details */}
+                      {ollamaStatus && (
+                        <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 2 }}>
+                            <Box>
+                              <Typography variant="caption" color="text.secondary">Process</Typography>
+                              <Typography variant="body2">
+                                {ollamaStatus.running ? 'Running' : 'Stopped'}
+                              </Typography>
+                            </Box>
+                            <Box>
+                              <Typography variant="caption" color="text.secondary">API</Typography>
+                              <Typography variant="body2">
+                                {ollamaStatus.responding ? 'Responding' : 'No Response'}
+                              </Typography>
+                            </Box>
+                            <Box>
+                              <Typography variant="caption" color="text.secondary">Models</Typography>
+                              <Typography variant="body2">
+                                {ollamaStatus.models_count}
+                              </Typography>
+                            </Box>
+                            <Box>
+                              <Typography variant="caption" color="text.secondary">Control</Typography>
+                              <Typography variant="body2">
+                                {ollamaStatus.can_control ? 'Available' : 'Limited'}
+                              </Typography>
+                            </Box>
+                          </Box>
+                        </Box>
+                      )}
+                      
+                      {/* Installation Help */}
+                      {!ollamaStatus?.running && (
+                        <Alert severity="info" sx={{ mt: 2 }}>
+                          <Typography variant="body2" sx={{ mb: 1 }}>
+                            Ollama not found or not running.
+                          </Typography>
+                          <Button
+                            variant="outlined"
+                            href="https://ollama.ai"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            startIcon={<Launch />}
+                            size="small"
+                          >
+                            Install Ollama
+                          </Button>
+                        </Alert>
+                      )}
                     </Box>
                   </CardContent>
                 </Card>
-
+                
                 {/* Available Ollama Models Table */}
-                <Typography variant="h6" sx={{ mb: 2 }}>
-                  Available Ollama Models
-                </Typography>
-                {ollamaModels.length === 0 ? (
-                  <Card sx={{ mb: 3, border: '2px dashed #ccc' }}>
-                    <CardContent>
-                      <Box sx={{ textAlign: 'center', p: 3 }}>
-                        <Download sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-                        <Typography variant="h6" sx={{ mb: 1 }}>
-                          No Models Downloaded
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                          Use the terminal to download Ollama models:
-                        </Typography>
-                        <Typography variant="body2" sx={{ fontFamily: 'monospace', p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
-                          ollama pull llama3.2:3b
-                        </Typography>
-                      </Box>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <TableContainer component={Paper} variant="outlined" sx={{ mb: 3 }}>
-                    <Table>
-                      <TableHead>
-                        <TableRow>
-                          <TableCell>Model</TableCell>
-                          <TableCell>Status</TableCell>
-                          <TableCell>Performance</TableCell>
-                          <TableCell align="right">Actions</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {ollamaModels.map((model) => {
-                          const isActive = preferredOllamaModel === model;
-                          const is3B = model.includes('3b') || model.includes('3B');
-                          const is8B = model.includes('8b') || model.includes('8B');
-                          const performance = is3B ? 'Fast (3-8s)' : is8B ? 'Moderate (8-15s)' : 'Variable';
-                          const performanceColor = is3B ? 'success.main' : is8B ? 'warning.main' : 'text.secondary';
-                          
-                          return (
-                            <TableRow key={model}>
-                              <TableCell>
-                                <Box>
-                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                    <Typography variant="body1">
-                                      {model}
-                                    </Typography>
-                                    {is3B && (
-                                      <Chip
-                                        icon={<Speed />}
-                                        label="Recommended"
-                                        size="small"
-                                        color="success"
-                                      />
-                                    )}
-                                    {isActive && (
-                                      <Chip
-                                        icon={<CheckCircle />}
-                                        label="Active"
-                                        size="small"
-                                        color="primary"
-                                      />
-                                    )}
-                                  </Box>
-                                  <Typography variant="body2" color="text.secondary">
-                                    Optimized local inference with GPU acceleration
-                                  </Typography>
-                                </Box>
-                              </TableCell>
-                              <TableCell>
-                                <Chip
-                                  icon={<CheckCircle />}
-                                  label="Available"
-                                  color="success"
-                                  size="small"
-                                />
-                              </TableCell>
-                              <TableCell>
-                                <Typography variant="body2" sx={{ color: performanceColor }}>
-                                  {performance}
-                                </Typography>
-                              </TableCell>
-                              <TableCell align="right">
-                                <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-                                  {!isActive && (
-                                    <Tooltip title="Set as active model">
-                                      <IconButton
-                                        size="small"
-                                        onClick={() => handleProviderSwitch('ollama', model)}
-                                        disabled={switchingProvider}
-                                      >
-                                        <PlayArrow />
-                                      </IconButton>
-                                    </Tooltip>
-                                  )}
-                                </Box>
-                              </TableCell>
+                {ollamaRunning && (
+                  <>
+                    <Typography variant="h6" sx={{ mb: 2 }}>
+                      Available Ollama Models
+                    </Typography>
+                    {ollamaModels.length === 0 ? (
+                      <Card sx={{ mb: 3, border: '2px dashed #ccc' }}>
+                        <CardContent>
+                          <Box sx={{ textAlign: 'center', p: 3 }}>
+                            <Download sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+                            <Typography variant="h6" sx={{ mb: 1 }}>
+                              No Models Downloaded
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                              Use the terminal to download Ollama models:
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontFamily: 'monospace', p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
+                              ollama pull llama3.2:3b
+                            </Typography>
+                          </Box>
+                        </CardContent>
+                      </Card>
+                    ) : (
+                      <TableContainer component={Paper} variant="outlined" sx={{ mb: 3 }}>
+                        <Table>
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>Model</TableCell>
+                              <TableCell>Status</TableCell>
+                              <TableCell>Performance</TableCell>
+                              <TableCell align="right">Actions</TableCell>
                             </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                )}
+                          </TableHead>
+                          <TableBody>
+                            {ollamaModels.map((model) => {
+                              const isActive = preferredOllamaModel === model;
+                              const is3B = model.includes('3b') || model.includes('3B');
+                              const is8B = model.includes('8b') || model.includes('8B');
+                              const performance = is3B ? 'Fast (3-8s)' : is8B ? 'Moderate (8-15s)' : 'Variable';
+                              const performanceColor = is3B ? 'success.main' : is8B ? 'warning.main' : 'text.secondary';
+                              
+                              return (
+                                <TableRow key={model}>
+                                  <TableCell>
+                                    <Box>
+                                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                        <Typography variant="body1">
+                                          {model}
+                                        </Typography>
+                                        {is3B && (
+                                          <Chip
+                                            icon={<Speed />}
+                                            label="Recommended"
+                                            size="small"
+                                            color="success"
+                                          />
+                                        )}
+                                        {isActive && (
+                                          <Chip
+                                            icon={<CheckCircle />}
+                                            label="Active"
+                                            size="small"
+                                            color="primary"
+                                          />
+                                        )}
+                                      </Box>
+                                      <Typography variant="body2" color="text.secondary">
+                                        Optimized local inference with GPU acceleration
+                                      </Typography>
+                                    </Box>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Chip
+                                      icon={<CheckCircle />}
+                                      label="Available"
+                                      color="success"
+                                      size="small"
+                                    />
+                                  </TableCell>
+                                  <TableCell>
+                                    <Typography variant="body2" sx={{ color: performanceColor }}>
+                                      {performance}
+                                    </Typography>
+                                  </TableCell>
+                                  <TableCell align="right">
+                                    <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                                      {!isActive && (
+                                        <Tooltip title="Set as active model">
+                                          <IconButton
+                                            size="small"
+                                            onClick={() => handleProviderSwitch('ollama', model)}
+                                            disabled={switchingProvider}
+                                          >
+                                            <PlayArrow />
+                                          </IconButton>
+                                        </Tooltip>
+                                      )}
+                                    </Box>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    )}
 
-                <Box sx={{ display: 'flex', gap: 2, mt: 3 }}>
-                  <Button
-                    variant="outlined"
-                    onClick={loadProviderInfo}
-                    disabled={loadingProvider}
-                    startIcon={<Refresh />}
-                  >
-                    Refresh Models
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    href="https://ollama.ai/library"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    startIcon={<Launch />}
-                  >
-                    Browse Model Library
-                  </Button>
-                </Box>
+                    <Box sx={{ display: 'flex', gap: 2, mt: 3 }}>
+                      <Button
+                        variant="outlined"
+                        onClick={loadProviderInfo}
+                        disabled={loadingProvider}
+                        startIcon={<Refresh />}
+                      >
+                        Refresh Models
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        href="https://ollama.ai/library"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        startIcon={<Launch />}
+                      >
+                        Browse Model Library
+                      </Button>
+                    </Box>
+                  </>
+                )}
               </>
             )}
           </Paper>

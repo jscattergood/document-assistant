@@ -31,6 +31,24 @@ async def lifespan(app: FastAPI):
     document_service = DocumentService()
     # Initialize with MPNet model by default (best for semantic search)
     await document_service.initialize(embedding_model="mpnet", use_gpu=None)
+    
+    # Check if we should auto-start Ollama
+    try:
+        import json
+        from pathlib import Path
+        
+        settings_file = Path("../data/app_settings.json")
+        if settings_file.exists():
+            with open(settings_file, 'r') as f:
+                settings = json.load(f)
+                auto_start_ollama = settings.get('auto_start_ollama', False)
+                
+                if auto_start_ollama:
+                    print("Auto-starting Ollama...")
+                    await _auto_start_ollama()
+    except Exception as e:
+        print(f"Error checking auto-start settings: {e}")
+    
     print("Document Assistant initialized successfully!")
     
     yield
@@ -39,6 +57,73 @@ async def lifespan(app: FastAPI):
     if document_service:
         await document_service.cleanup()
     print("Document Assistant shutdown complete.")
+
+async def _auto_start_ollama():
+    """Helper function to auto-start Ollama on server startup."""
+    try:
+        import subprocess
+        import platform
+        import time
+        import requests
+        
+        # Check if Ollama is already running
+        try:
+            response = requests.get("http://localhost:11434/api/tags", timeout=3)
+            if response.status_code == 200:
+                print("Ollama is already running")
+                return
+        except:
+            pass
+        
+        print("Attempting to start Ollama...")
+        system = platform.system().lower()
+        
+        if system == "darwin":  # macOS
+            try:
+                subprocess.run(["brew", "services", "start", "ollama"], 
+                             check=True, capture_output=True, timeout=10)
+                print("Started Ollama using brew services")
+            except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+                try:
+                    subprocess.Popen(["ollama", "serve"], 
+                                   stdout=subprocess.DEVNULL, 
+                                   stderr=subprocess.DEVNULL)
+                    print("Started Ollama using direct execution")
+                except FileNotFoundError:
+                    print("Ollama not found - please install Ollama")
+                    return
+        
+        elif system == "linux":
+            try:
+                subprocess.run(["systemctl", "--user", "start", "ollama"], 
+                             check=True, capture_output=True, timeout=10)
+                print("Started Ollama using systemctl")
+            except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+                try:
+                    subprocess.Popen(["ollama", "serve"], 
+                                   stdout=subprocess.DEVNULL, 
+                                   stderr=subprocess.DEVNULL)
+                    print("Started Ollama using direct execution")
+                except FileNotFoundError:
+                    print("Ollama not found - please install Ollama")
+                    return
+        
+        # Wait and verify startup (give it more time on startup)
+        print("Waiting for Ollama to start...")
+        for i in range(10):  # Wait up to 10 seconds
+            time.sleep(1)
+            try:
+                response = requests.get("http://localhost:11434/api/tags", timeout=3)
+                if response.status_code == 200:
+                    print("Ollama started successfully!")
+                    return
+            except:
+                continue
+        
+        print("Ollama started but may still be initializing...")
+        
+    except Exception as e:
+        print(f"Error auto-starting Ollama: {e}")
 
 # Create FastAPI app
 app = FastAPI(

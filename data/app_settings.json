@@ -3,5 +3,6 @@
   "temperature": 0.7,
   "use_document_context": true,
   "enable_notifications": true,
-  "llm_provider": "ollama"
+  "llm_provider": "ollama",
+  "preferred_ollama_model": "llama3.2:3b"
 }

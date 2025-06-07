@@ -519,6 +519,54 @@ export const modelsAPI = {
     const response = await api.get('/models/ollama/models');
     return response.data;
   },
+
+  // Ollama Process Management
+  async getOllamaStatus(): Promise<{
+    success: boolean;
+    running: boolean;
+    responding: boolean;
+    process_id?: string;
+    version?: string;
+    models_count: number;
+    models: string[];
+    can_control: boolean;
+    platform: string;
+  }> {
+    // Add cache busting parameter
+    const response = await api.get(`/models/ollama/status?_t=${Date.now()}`);
+    return response.data;
+  },
+
+  async startOllama(): Promise<{
+    success: boolean;
+    message: string;
+    already_running?: boolean;
+    method?: string;
+    install_url?: string;
+  }> {
+    const response = await api.post('/models/ollama/start');
+    return response.data;
+  },
+
+  async stopOllama(): Promise<{
+    success: boolean;
+    message: string;
+    already_stopped?: boolean;
+    method?: string;
+  }> {
+    const response = await api.post('/models/ollama/stop');
+    return response.data;
+  },
+
+  async restartOllama(): Promise<{
+    success: boolean;
+    message: string;
+    stop_method?: string;
+    start_method?: string;
+  }> {
+    const response = await api.post('/models/ollama/restart');
+    return response.data;
+  },
 };
 
 export default api; 

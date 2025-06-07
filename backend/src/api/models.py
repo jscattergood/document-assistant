@@ -1040,4 +1040,315 @@ async def get_ollama_models():
             }
             
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting Ollama models: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Error getting Ollama models: {str(e)}")
+
+# Ollama Process Management Endpoints
+
+@router.get("/ollama/status")
+async def get_ollama_status():
+    """Get detailed Ollama process status."""
+    try:
+        import requests
+        import subprocess
+        import platform
+        
+        status_info = {
+            "running": False,
+            "responding": False,
+            "process_id": None,
+            "version": None,
+            "models_count": 0,
+            "models": [],
+            "can_control": False,
+            "platform": platform.system().lower()
+        }
+        
+        # Check if Ollama process is running
+        try:
+            if platform.system().lower() == "darwin":  # macOS
+                result = subprocess.run(["pgrep", "-f", "ollama"], capture_output=True, text=True)
+                if result.returncode == 0:
+                    status_info["running"] = True
+                    status_info["process_id"] = result.stdout.strip().split('\n')[0]
+            elif platform.system().lower() == "linux":
+                result = subprocess.run(["pgrep", "ollama"], capture_output=True, text=True)
+                if result.returncode == 0:
+                    status_info["running"] = True
+                    status_info["process_id"] = result.stdout.strip().split('\n')[0]
+            else:  # Windows
+                result = subprocess.run(["tasklist", "/FI", "IMAGENAME eq ollama.exe"], capture_output=True, text=True)
+                if "ollama.exe" in result.stdout:
+                    status_info["running"] = True
+        except Exception as e:
+            print(f"Error checking Ollama process: {e}")
+        
+        # Check if we can control Ollama (either running process or ability to start)
+        # We can control if ollama command exists in PATH
+        try:
+            # Test if ollama command is available
+            subprocess.run(["ollama", "--version"], capture_output=True, text=True, timeout=5)
+            status_info["can_control"] = True
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+            # If ollama command not found, check common installation paths
+            import os
+            ollama_paths = [
+                "/opt/homebrew/bin/ollama",  # brew install location
+                "/usr/local/bin/ollama",     # common install location
+                "/usr/bin/ollama"            # system install location
+            ]
+            for path in ollama_paths:
+                if os.path.exists(path):
+                    status_info["can_control"] = True
+                    break
+        
+        # Check if Ollama is responding to API calls
+        try:
+            response = requests.get("http://localhost:11434/api/tags", timeout=5)
+            if response.status_code == 200:
+                status_info["responding"] = True
+                data = response.json()
+                status_info["models"] = [model['name'] for model in data.get('models', [])]
+                status_info["models_count"] = len(status_info["models"])
+                
+                # Try to get version
+                try:
+                    version_response = requests.get("http://localhost:11434/api/version", timeout=3)
+                    if version_response.status_code == 200:
+                        status_info["version"] = version_response.json().get("version", "unknown")
+                except:
+                    pass
+        except requests.RequestException:
+            pass
+        
+        return {
+            "success": True,
+            **status_info
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting Ollama status: {str(e)}")
+
+@router.post("/ollama/start")
+async def start_ollama():
+    """Start Ollama process."""
+    try:
+        import subprocess
+        import platform
+        import time
+        import requests
+        
+        # Check if already running
+        try:
+            response = requests.get("http://localhost:11434/api/tags", timeout=3)
+            if response.status_code == 200:
+                return {
+                    "success": True,
+                    "message": "Ollama is already running",
+                    "already_running": True
+                }
+        except:
+            pass
+        
+        system = platform.system().lower()
+        
+        if system == "darwin":  # macOS
+            # Try to start Ollama using launchctl (if installed via brew)
+            try:
+                subprocess.run(["brew", "services", "start", "ollama"], check=True, capture_output=True)
+                success_method = "brew services"
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                # Fallback to direct execution
+                try:
+                    subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    success_method = "direct execution"
+                except FileNotFoundError:
+                    return {
+                        "success": False,
+                        "message": "Ollama not found. Please install Ollama first.",
+                        "install_url": "https://ollama.ai"
+                    }
+        
+        elif system == "linux":
+            # Try systemctl first, then direct execution
+            try:
+                subprocess.run(["systemctl", "--user", "start", "ollama"], check=True, capture_output=True)
+                success_method = "systemctl"
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                try:
+                    subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    success_method = "direct execution"
+                except FileNotFoundError:
+                    return {
+                        "success": False,
+                        "message": "Ollama not found. Please install Ollama first.",
+                        "install_url": "https://ollama.ai"
+                    }
+        
+        else:  # Windows
+            try:
+                subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NEW_CONSOLE)
+                success_method = "direct execution"
+            except FileNotFoundError:
+                return {
+                    "success": False,
+                    "message": "Ollama not found. Please install Ollama first.",
+                    "install_url": "https://ollama.ai"
+                }
+        
+        # Wait a moment and verify it started
+        time.sleep(3)
+        
+        try:
+            response = requests.get("http://localhost:11434/api/tags", timeout=10)
+            if response.status_code == 200:
+                return {
+                    "success": True,
+                    "message": f"Ollama started successfully using {success_method}",
+                    "method": success_method
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": "Ollama process started but not responding to API calls. Please wait a moment and try again."
+                }
+        except requests.RequestException:
+            return {
+                "success": False,
+                "message": "Ollama process started but not responding yet. Please wait a moment and try again."
+            }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error starting Ollama: {str(e)}"
+        }
+
+@router.post("/ollama/stop")
+async def stop_ollama():
+    """Stop Ollama process."""
+    try:
+        import subprocess
+        import platform
+        import time
+        import requests
+        
+        # Check if running
+        try:
+            response = requests.get("http://localhost:11434/api/tags", timeout=3)
+            if response.status_code != 200:
+                return {
+                    "success": True,
+                    "message": "Ollama is not running",
+                    "already_stopped": True
+                }
+        except:
+            return {
+                "success": True,
+                "message": "Ollama is not running",
+                "already_stopped": True
+            }
+        
+        system = platform.system().lower()
+        
+        if system == "darwin":  # macOS
+            try:
+                # Try brew services stop first
+                subprocess.run(["brew", "services", "stop", "ollama"], check=True, capture_output=True)
+                success_method = "brew services"
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                # Fallback to killing process
+                try:
+                    subprocess.run(["pkill", "-f", "ollama"], check=True)
+                    success_method = "pkill"
+                except subprocess.CalledProcessError:
+                    return {
+                        "success": False,
+                        "message": "Could not stop Ollama process"
+                    }
+        
+        elif system == "linux":
+            try:
+                # Try systemctl first
+                subprocess.run(["systemctl", "--user", "stop", "ollama"], check=True, capture_output=True)
+                success_method = "systemctl"
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                try:
+                    subprocess.run(["pkill", "ollama"], check=True)
+                    success_method = "pkill"
+                except subprocess.CalledProcessError:
+                    return {
+                        "success": False,
+                        "message": "Could not stop Ollama process"
+                    }
+        
+        else:  # Windows
+            try:
+                subprocess.run(["taskkill", "/F", "/IM", "ollama.exe"], check=True, capture_output=True)
+                success_method = "taskkill"
+            except subprocess.CalledProcessError:
+                return {
+                    "success": False,
+                    "message": "Could not stop Ollama process"
+                }
+        
+        # Wait a moment and verify it stopped
+        time.sleep(2)
+        
+        try:
+            response = requests.get("http://localhost:11434/api/tags", timeout=3)
+            if response.status_code == 200:
+                return {
+                    "success": False,
+                    "message": "Ollama process still responding after stop command"
+                }
+        except requests.RequestException:
+            pass  # This is expected - Ollama should not be responding
+        
+        return {
+            "success": True,
+            "message": f"Ollama stopped successfully using {success_method}",
+            "method": success_method
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error stopping Ollama: {str(e)}"
+        }
+
+@router.post("/ollama/restart")
+async def restart_ollama():
+    """Restart Ollama process."""
+    try:
+        # Stop first
+        stop_result = await stop_ollama()
+        if not stop_result["success"] and not stop_result.get("already_stopped"):
+            return {
+                "success": False,
+                "message": f"Failed to stop Ollama: {stop_result['message']}"
+            }
+        
+        # Wait a moment
+        import time
+        time.sleep(2)
+        
+        # Start
+        start_result = await start_ollama()
+        if start_result["success"]:
+            return {
+                "success": True,
+                "message": "Ollama restarted successfully",
+                "stop_method": stop_result.get("method"),
+                "start_method": start_result.get("method")
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"Failed to start Ollama after stop: {start_result['message']}"
+            }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error restarting Ollama: {str(e)}"
+        } 
