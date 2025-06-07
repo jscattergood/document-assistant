@@ -18,16 +18,19 @@ export const theme = createTheme({
       main: '#2e7d32', // Professional green
       light: '#4caf50',
       dark: '#1b5e20',
+      contrastText: '#ffffff',
     },
     warning: {
       main: '#ed6c02',
       light: '#ff9800',
       dark: '#e65100',
+      contrastText: '#ffffff',
     },
     error: {
       main: '#d32f2f',
       light: '#f44336',
       dark: '#b71c1c',
+      contrastText: '#ffffff',
     },
     background: {
       default: '#f8fafc', // Slightly cooler white
@@ -99,8 +102,46 @@ export const theme = createTheme({
         },
         contained: {
           background: 'linear-gradient(135deg, #1976d2 0%, #1565c0 100%)',
+          color: '#ffffff',
           '&:hover': {
             background: 'linear-gradient(135deg, #1565c0 0%, #0d47a1 100%)',
+            color: '#ffffff',
+          },
+          '&:disabled': {
+            background: 'rgba(0, 0, 0, 0.12)',
+            color: 'rgba(0, 0, 0, 0.26)',
+          },
+        },
+        containedSecondary: {
+          background: 'linear-gradient(135deg, #f57c00 0%, #e65100 100%)',
+          color: '#ffffff',
+          '&:hover': {
+            background: 'linear-gradient(135deg, #e65100 0%, #bf360c 100%)',
+            color: '#ffffff',
+          },
+        },
+        containedSuccess: {
+          background: 'linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%)',
+          color: '#ffffff',
+          '&:hover': {
+            background: 'linear-gradient(135deg, #1b5e20 0%, #0d5016 100%)',
+            color: '#ffffff',
+          },
+        },
+        containedWarning: {
+          background: 'linear-gradient(135deg, #ed6c02 0%, #e65100 100%)',
+          color: '#ffffff',
+          '&:hover': {
+            background: 'linear-gradient(135deg, #e65100 0%, #d84315 100%)',
+            color: '#ffffff',
+          },
+        },
+        containedError: {
+          background: 'linear-gradient(135deg, #d32f2f 0%, #b71c1c 100%)',
+          color: '#ffffff',
+          '&:hover': {
+            background: 'linear-gradient(135deg, #b71c1c 0%, #8b0000 100%)',
+            color: '#ffffff',
           },
         },
       },

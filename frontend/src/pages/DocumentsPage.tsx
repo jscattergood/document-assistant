@@ -252,35 +252,31 @@ const DocumentsPage: React.FC = () => {
         </Typography>
         
         {/* File Upload */}
-        <Box
-          {...getRootProps()}
-          sx={{
-            textAlign: 'center',
-            py: 6,
-            border: '2px dashed',
-            borderColor: isDragActive ? 'primary.main' : 'grey.300',
-            borderRadius: 2,
-            backgroundColor: isDragActive ? 'primary.light' : 'transparent',
-            cursor: 'pointer',
-            transition: 'all 0.3s ease',
-            '&:hover': {
-              borderColor: 'primary.main',
-              backgroundColor: 'primary.light',
-            },
-          }}
-        >
-          <input {...getInputProps()} />
-          <CloudUpload sx={{ fontSize: 64, color: 'primary.main', mb: 2 }} />
-          <Typography variant="h5" component="h3" sx={{ mb: 2 }}>
-            {isDragActive ? 'Drop files here' : 'Upload Files'}
-          </Typography>
-          <Typography variant="body1" color="text.secondary" sx={{ mb: 4, maxWidth: 600, mx: 'auto' }}>
-            Drag and drop files here, or click to browse. Supported formats: PDF, DOCX, TXT, MD, HTML
-          </Typography>
-          <Button variant="contained" size="large" startIcon={<Add />}>
-            Choose Files
-          </Button>
-        </Box>
+        <Card sx={{ mb: 3, border: '2px dashed #ccc' }}>
+          <CardContent>
+            <Box
+              {...getRootProps()}
+              sx={{
+                p: 3,
+                textAlign: 'center',
+                cursor: 'pointer',
+                '&:hover': { bgcolor: 'action.hover' },
+              }}
+            >
+              <input {...getInputProps()} />
+              <CloudUpload sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
+              <Typography variant="h6" sx={{ mb: 1 }}>
+                {isDragActive ? 'Drop files here' : 'Upload Documents'}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Drag and drop files here, or click to browse. Supported formats: PDF, DOCX, TXT, MD, HTML
+              </Typography>
+              <Button variant="contained" size="large" startIcon={<Add />}>
+                Choose Files
+              </Button>
+            </Box>
+          </CardContent>
+        </Card>
 
         <Divider sx={{ my: 4 }}>
           <Typography variant="body2" color="text.secondary">

@@ -179,7 +179,7 @@ const ChatPage: React.FC = () => {
       {/* Chat Container */}
       <Paper elevation={2} sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
         {/* Chat Messages Area */}
-        <Box sx={{ flexGrow: 1, p: 3, overflowY: 'auto', maxHeight: 'calc(100vh - 300px)' }}>
+        <Box sx={{ flexGrow: 1, p: 4, overflowY: 'auto', maxHeight: 'calc(100vh - 300px)' }}>
           {messages.length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 8 }}>
               <SmartToy sx={{ fontSize: 64, color: 'primary.main', mb: 2 }} />
@@ -346,7 +346,7 @@ const ChatPage: React.FC = () => {
         </Box>
 
         {/* Chat Input */}
-        <Box sx={{ p: 3, borderTop: 1, borderColor: 'divider' }}>
+        <Box sx={{ p: 4, borderTop: 1, borderColor: 'divider' }}>
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-end' }}>
             <TextField
               fullWidth
