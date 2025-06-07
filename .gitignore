@@ -251,6 +251,9 @@ docker-data/
 # ================================
 # Application Specific
 # ================================
+# Configuration files (user-specific settings)
+data/app_settings.json
+
 # Logs
 logs/
 *.log
