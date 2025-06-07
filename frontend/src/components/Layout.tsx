@@ -19,6 +19,7 @@ import {
   Cloud as CloudIcon,
   Settings as CogIcon,
 } from '@mui/icons-material';
+import logoSvg from '../assets/logo.svg';
 
 interface LayoutProps {
   children: ReactNode;
@@ -57,15 +58,37 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
           {/* Logo */}
           <Box
+            component={Link}
+            to="/"
             sx={{
-              p: 3,
+              p: 4,
               borderBottom: '1px solid',
               borderColor: 'divider',
               display: 'flex',
               alignItems: 'center',
+              textDecoration: 'none',
+              color: 'inherit',
+              transition: 'all 0.2s ease-in-out',
+              '&:hover': {
+                backgroundColor: 'action.hover',
+                '& img': {
+                  transform: 'scale(1.05)',
+                },
+              },
             }}
           >
-            <DocumentTextIcon sx={{ color: 'primary.main', mr: 2 }} />
+            <Box
+              component="img"
+              src={logoSvg}
+              alt="Document Assistant Logo"
+              sx={{
+                width: 64,
+                height: 64,
+                mr: 3,
+                flexShrink: 0,
+                transition: 'transform 0.2s ease-in-out',
+              }}
+            />
             <Typography variant="h5" component="h1" sx={{ fontWeight: 600 }}>
               Document Assistant
             </Typography>
@@ -140,7 +163,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             >
               Document Assistant v1.0.0
               <br />
-              Powered by LlamaIndex & GPT4All
+              Powered by LlamaIndex, GPT4All & Ollama
             </Typography>
           </Box>
         </Box>

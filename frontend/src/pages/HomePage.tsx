@@ -35,16 +35,62 @@ const HomePage: React.FC = () => {
   const navigate = useNavigate();
 
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
-      {/* Header */}
-      <Box sx={{ mb: 6 }}>
-        <Typography variant="h1" component="h1" sx={{ mb: 2 }}>
-          Welcome to Document Assistant
-        </Typography>
-        <Typography variant="h6" color="text.secondary" sx={{ maxWidth: 600 }}>
-          AI-powered document analysis and generation tool with offline capabilities
-        </Typography>
+    <Box>
+      {/* Hero Section */}
+      <Box
+        sx={{
+          background: 'linear-gradient(135deg, #1976d2 0%, #1565c0 50%, #0d47a1 100%)',
+          color: 'white',
+          py: 8,
+          mb: 4,
+        }}
+      >
+        <Container maxWidth="xl">
+          <Box sx={{ textAlign: 'center' }}>
+            <Typography variant="h1" component="h1" sx={{ mb: 2, fontWeight: 700 }}>
+              Welcome to Document Assistant
+            </Typography>
+            <Typography variant="h5" sx={{ mb: 4, opacity: 0.9, maxWidth: 800, mx: 'auto' }}>
+              AI-powered document analysis and generation tool with offline capabilities.
+              Upload, analyze, chat, and generate content with cutting-edge AI technology.
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <Button
+                variant="contained"
+                size="large"
+                onClick={() => navigate('/documents')}
+                sx={{
+                  bgcolor: 'rgba(255,255,255,0.2)',
+                  backdropFilter: 'blur(10px)',
+                  border: '1px solid rgba(255,255,255,0.3)',
+                  '&:hover': {
+                    bgcolor: 'rgba(255,255,255,0.3)',
+                  },
+                }}
+              >
+                Get Started
+              </Button>
+              <Button
+                variant="outlined"
+                size="large"
+                onClick={() => navigate('/settings')}
+                sx={{
+                  borderColor: 'rgba(255,255,255,0.5)',
+                  color: 'white',
+                  '&:hover': {
+                    borderColor: 'rgba(255,255,255,0.8)',
+                    bgcolor: 'rgba(255,255,255,0.1)',
+                  },
+                }}
+              >
+                Configure AI Models
+              </Button>
+            </Box>
+          </Box>
+        </Container>
       </Box>
+
+      <Container maxWidth="xl" sx={{ py: 4 }}>
 
       {/* Feature cards */}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)' }, gap: 3, mb: 6 }}>
@@ -226,7 +272,8 @@ const HomePage: React.FC = () => {
           ))}
         </Stepper>
       </Paper>
-    </Container>
+      </Container>
+    </Box>
   );
 };
 
