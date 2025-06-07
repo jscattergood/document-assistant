@@ -1673,6 +1673,18 @@ CONTENT:
             # Update LLM settings to ensure current max_tokens is used
             self.update_llm_settings()
             
+            # First, check if this is a document-specific query that should use direct document loading
+            matching_documents = self._detect_document_specific_query(query)
+            
+            if matching_documents:
+                print(f"Using direct document analysis for: {matching_documents}")
+                # Use direct document analysis for better results
+                direct_prompt = self._create_direct_document_prompt(matching_documents, query)
+                if direct_prompt:
+                    # Use LLM directly with the full document content
+                    response_text = self.llm.complete(direct_prompt).text
+                    return self._format_response_as_markdown(response_text)
+            
             # Check if this is a targeted query for specific documents
             query_lower = query.lower()
             target_keywords = []
@@ -1760,6 +1772,18 @@ CONTENT:
             # Reset chat engine if new conversation
             if not conversation_history:
                 self.chat_engine.reset()
+            
+            # First, check if this is a document-specific query that should use direct document loading
+            matching_documents = self._detect_document_specific_query(message)
+            
+            if matching_documents:
+                print(f"Using direct document analysis for chat: {matching_documents}")
+                # Use direct document analysis for better results
+                direct_prompt = self._create_direct_document_prompt(matching_documents, message)
+                if direct_prompt:
+                    # Use LLM directly with the full document content
+                    response_text = self.llm.complete(direct_prompt).text
+                    return self._format_response_as_markdown(response_text)
             
             # Check if this is a targeted query for specific documents
             message_lower = message.lower()
@@ -2111,3 +2135,181 @@ REMEMBER: You may have context from multiple documents even if not explicitly la
             return truncated
         
         return response 
+
+    def _detect_document_specific_query(self, query: str) -> List[str]:
+        """
+        Detect if a query is asking about specific documents and return matching document names.
+        Returns list of document filenames that match the query keywords.
+        """
+        query_lower = query.lower()
+        
+        # Common patterns for document-specific queries
+        specific_patterns = [
+            'analyze the document',
+            'summarize the document',
+            'what does the document',
+            'in the document',
+            'document:',
+            'examine the',
+            'analyze this document',
+            'review the document'
+        ]
+        
+        # Check if this looks like a document-specific query
+        is_document_specific = any(pattern in query_lower for pattern in specific_patterns)
+        
+        if not is_document_specific:
+            # Also check for specific document name mentions
+            document_keywords = [
+                'pset-rfc', 'pset rfc', 'inter ai agent', 'orchestrator', 'plugin communication',
+                'asset graph', 'google a2a', 'streaming capabilities', 'conditional write',
+                'adoption of mcp', 'next-generation', 'autodesk assistant'
+            ]
+            is_document_specific = any(keyword in query_lower for keyword in document_keywords)
+        
+        if not is_document_specific:
+            return []
+        
+        # Find matching documents
+        matching_docs = []
+        
+        try:
+            if self.documents_dir.exists():
+                for doc_file in self.documents_dir.glob('*'):
+                    if doc_file.is_file() and doc_file.name != '.gitkeep':
+                        # Extract keywords from filename for matching
+                        filename_lower = doc_file.name.lower()
+                        
+                        # More precise matching: prioritize exact matches and specific combinations
+                        score = 0
+                        
+                        # Check for specific document patterns
+                        if 'orchestrator' in query_lower and 'plugin' in query_lower:
+                            if 'orchestrator' in filename_lower and 'plugin' in filename_lower:
+                                score += 10  # High priority for exact match
+                        
+                        if 'pset-rfc' in query_lower or 'pset rfc' in query_lower:
+                            if 'pset-rfc' in filename_lower or 'pset_rfc' in filename_lower:
+                                score += 8  # High priority for PSET-RFC
+                                
+                        # Additional keyword matching
+                        keywords_found = sum(1 for keyword in [
+                            'pset-rfc', 'orchestrator', 'plugin', 'communication', 'protocol',
+                            'asset_graph', 'google_a2a', 'streaming', 'conditional', 'write',
+                            'mcp', 'next-generation', 'autodesk', 'assistant'
+                        ] if keyword in filename_lower)
+                        
+                        score += keywords_found
+                        
+                        # Also check if query mentions specific terms from this filename
+                        filename_keywords = filename_lower.replace('_', ' ').replace('-', ' ')
+                        query_terms_found = sum(1 for term in filename_keywords.split() 
+                                              if len(term) > 3 and term in query_lower)
+                        score += query_terms_found
+                        
+                        if score > 0:
+                            matching_docs.append((doc_file.name, score))
+                                
+        except Exception as e:
+            print(f"Error scanning documents directory: {e}")
+        
+        # Sort by score (descending) and return just the filenames
+        if matching_docs:
+            matching_docs.sort(key=lambda x: x[1], reverse=True)
+            return [doc[0] for doc in matching_docs]
+        
+        return []
+    
+    def _load_document_content(self, filename: str) -> str:
+        """
+        Load the full content of a document for direct context injection.
+        Supports both markdown (.md) and Word (.docx) files.
+        """
+        try:
+            doc_path = self.documents_dir / filename
+            if not doc_path.exists():
+                return f"Document '{filename}' not found."
+            
+            if filename.endswith('.md'):
+                # Read markdown file
+                with open(doc_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                return content
+                
+            elif filename.endswith('.docx'):
+                # Read Word document using python-docx
+                try:
+                    from docx import Document
+                    doc = Document(doc_path)
+                    paragraphs = []
+                    for paragraph in doc.paragraphs:
+                        if paragraph.text.strip():
+                            paragraphs.append(paragraph.text)
+                    content = '\n\n'.join(paragraphs)
+                    return content
+                except ImportError:
+                    return f"Cannot read .docx files: python-docx not installed. Document: {filename}"
+                except Exception as e:
+                    return f"Error reading Word document '{filename}': {str(e)}"
+            
+            else:
+                # Try to read as text file
+                with open(doc_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                return content
+                
+        except Exception as e:
+            return f"Error loading document '{filename}': {str(e)}"
+    
+    def _estimate_token_count(self, text: str) -> int:
+        """
+        Rough estimation of token count (approximately 4 characters per token).
+        """
+        return len(text) // 4
+    
+    def _create_direct_document_prompt(self, documents: List[str], query: str) -> str:
+        """
+        Create a prompt with full document content for direct analysis.
+        Prioritizes the most relevant documents within context limits.
+        """
+        max_context_tokens = 3500  # Leave room for query and response
+        total_content = []
+        total_tokens = 0
+        
+        # Limit to top 3 most relevant documents to avoid information overload
+        relevant_documents = documents[:3]
+        
+        for doc_filename in relevant_documents:
+            content = self._load_document_content(doc_filename)
+            tokens = self._estimate_token_count(content)
+            
+            if total_tokens + tokens > max_context_tokens:
+                # If adding this document would exceed context, truncate or skip
+                remaining_tokens = max_context_tokens - total_tokens
+                if remaining_tokens > 800:  # Only include if we have reasonable space
+                    truncated_content = content[:remaining_tokens * 4]
+                    total_content.append(f"=== DOCUMENT: {doc_filename} (TRUNCATED) ===\n{truncated_content}\n")
+                break
+            else:
+                total_content.append(f"=== DOCUMENT: {doc_filename} ===\n{content}\n")
+                total_tokens += tokens
+        
+        if not total_content:
+            return None
+        
+        prompt = f"""You are analyzing the following document(s) in detail. Use the complete document content provided below to answer the user's question comprehensively.
+
+DOCUMENT CONTENT:
+{''.join(total_content)}
+
+USER QUESTION: {query}
+
+Instructions:
+1. Base your analysis entirely on the document content provided above
+2. Provide detailed, comprehensive answers since you have access to the full document
+3. Reference specific sections, quotes, or details from the documents
+4. If the question asks for a summary, provide a thorough overview of the document's key points
+5. If analyzing multiple documents, clearly distinguish between them in your response
+"""
+        
+        return prompt
