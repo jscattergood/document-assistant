@@ -37,6 +37,22 @@ export interface ChatResponse {
   message?: string;
 }
 
+export interface JobResponse {
+  job_id: string;
+  status: string;
+  message: string;
+}
+
+export interface JobStatusResponse {
+  job_id: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  message?: string;
+  response?: string;
+  created_at: string;
+  completed_at?: string;
+  error?: string;
+}
+
 export interface ConfluenceCredentials {
   url: string;
   username?: string;
@@ -108,6 +124,32 @@ export const chatAPI = {
       prompt,
       context,
     });
+    return response.data;
+  },
+
+  // Background chat processing
+  async startBackgroundChat(
+    message: string,
+    conversationHistory?: Array<{role: string; content: string}>,
+    documentIds?: string[]
+  ): Promise<JobResponse> {
+    const response = await api.post('/chat/chat-background', {
+      message,
+      conversation_history: conversationHistory,
+      document_ids: documentIds,
+    });
+    return response.data;
+  },
+
+  // Check job status
+  async getJobStatus(jobId: string): Promise<JobStatusResponse> {
+    const response = await api.get(`/chat/job/${jobId}`);
+    return response.data;
+  },
+
+  // Clean up completed job
+  async cleanupJob(jobId: string): Promise<{success: boolean; message: string}> {
+    const response = await api.delete(`/chat/job/${jobId}`);
     return response.data;
   },
 };

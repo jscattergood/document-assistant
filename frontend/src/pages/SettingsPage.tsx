@@ -164,7 +164,20 @@ const SettingsPage: React.FC = () => {
 
       if (currentResponse.success) {
         setCurrentModel(currentResponse.model_info);
-        setSelectedModel(currentResponse.model_info?.config?.model_name || '');
+        
+        // Find the key that matches the current model name
+        const currentModelName = currentResponse.model_info?.model_name;
+        let foundKey = '';
+        
+        if (currentModelName && modelsResponse.success) {
+          // Look for a model key where the model_name matches the current model
+          foundKey = Object.keys(modelsResponse.models).find(key => {
+            const modelConfig = modelsResponse.models[key];
+            return modelConfig.model_name === currentModelName;
+          }) || '';
+        }
+        
+        setSelectedModel(foundKey);
       }
 
       if (statusResponse.success) {
@@ -820,7 +833,7 @@ const SettingsPage: React.FC = () => {
                   <Button
                     variant="contained"
                     onClick={() => handleModelChange(selectedModel)}
-                    disabled={!selectedModel || changingModel || selectedModel === currentModel?.config?.model_name}
+                    disabled={!selectedModel || changingModel || (availableModels[selectedModel]?.model_name === currentModel?.model_name)}
                     startIcon={changingModel ? <CircularProgress size={20} /> : <Save />}
                   >
                     {changingModel ? 'Applying...' : 'Apply Model'}

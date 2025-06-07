@@ -1,14 +1,20 @@
 """
 API endpoints for chat functionality.
 """
-from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Depends
+from typing import List, Optional, Dict, Any
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
+import uuid
+import asyncio
+from datetime import datetime
 
 from ..models.document import ChatRequest, ChatResponse, ChatMessage
 from ..document_processor.service import DocumentService
 
 router = APIRouter()
+
+# Job storage (in production, use Redis or a proper database)
+jobs: Dict[str, Dict[str, Any]] = {}
 
 # Dependency to get document service
 def get_document_service() -> DocumentService:
@@ -20,6 +26,145 @@ def get_document_service() -> DocumentService:
 
 # Store conversation history (in production, use a proper database)
 conversations = {}
+
+class BackgroundChatRequest(BaseModel):
+    """Request model for background chat processing."""
+    message: str
+    conversation_history: Optional[List[Dict[str, str]]] = None
+    document_ids: Optional[List[str]] = None
+
+class JobResponse(BaseModel):
+    """Response model for background job creation."""
+    job_id: str
+    status: str
+    message: str
+
+class JobStatusResponse(BaseModel):
+    """Response model for job status checking."""
+    job_id: str
+    status: str  # "pending", "processing", "completed", "failed"
+    message: Optional[str] = None
+    response: Optional[str] = None
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    error: Optional[str] = None
+
+async def process_chat_background(
+    job_id: str,
+    message: str,
+    conversation_history: Optional[List[Dict[str, str]]],
+    document_ids: Optional[List[str]],
+    service: DocumentService
+):
+    """Background task to process chat request."""
+    try:
+        # Update job status to processing
+        jobs[job_id]["status"] = "processing"
+        jobs[job_id]["updated_at"] = datetime.now()
+        
+        # Process the chat request
+        response = await service.chat_with_documents(
+            message=message,
+            conversation_history=conversation_history
+        )
+        
+        # Update job with success
+        jobs[job_id].update({
+            "status": "completed",
+            "response": response,
+            "completed_at": datetime.now(),
+            "updated_at": datetime.now()
+        })
+        
+    except Exception as e:
+        # Update job with error
+        jobs[job_id].update({
+            "status": "failed",
+            "error": str(e),
+            "completed_at": datetime.now(),
+            "updated_at": datetime.now()
+        })
+
+@router.post("/chat-background", response_model=JobResponse)
+async def start_background_chat(
+    request: BackgroundChatRequest,
+    background_tasks: BackgroundTasks,
+    service: DocumentService = Depends(get_document_service)
+):
+    """Start a background chat processing job."""
+    try:
+        # Generate unique job ID
+        job_id = str(uuid.uuid4())
+        
+        # Create job record
+        jobs[job_id] = {
+            "job_id": job_id,
+            "status": "pending",
+            "message": "Chat request queued for processing",
+            "created_at": datetime.now(),
+            "updated_at": datetime.now(),
+            "request": {
+                "message": request.message,
+                "conversation_history": request.conversation_history,
+                "document_ids": request.document_ids
+            }
+        }
+        
+        # Add background task
+        background_tasks.add_task(
+            process_chat_background,
+            job_id,
+            request.message,
+            request.conversation_history,
+            request.document_ids,
+            service
+        )
+        
+        return JobResponse(
+            job_id=job_id,
+            status="pending",
+            message="Chat request queued for background processing"
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error starting background chat: {str(e)}")
+
+@router.get("/job/{job_id}", response_model=JobStatusResponse)
+async def get_job_status(job_id: str):
+    """Get the status of a background job."""
+    try:
+        if job_id not in jobs:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        job = jobs[job_id]
+        return JobStatusResponse(
+            job_id=job_id,
+            status=job["status"],
+            message=job.get("message"),
+            response=job.get("response"),
+            created_at=job["created_at"],
+            completed_at=job.get("completed_at"),
+            error=job.get("error")
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving job status: {str(e)}")
+
+@router.delete("/job/{job_id}")
+async def cleanup_job(job_id: str):
+    """Clean up a completed job."""
+    try:
+        if job_id in jobs:
+            del jobs[job_id]
+            return {"success": True, "message": "Job cleaned up successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Job not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error cleaning up job: {str(e)}")
 
 @router.post("/query", response_model=ChatResponse)
 async def query_documents(

@@ -14,6 +14,9 @@ import {
   ListItemText,
   CircularProgress,
   Alert,
+  Switch,
+  FormControlLabel,
+  Tooltip,
 } from '@mui/material';
 import {
   Send,
@@ -24,6 +27,8 @@ import {
   History,
   Add,
   ChatBubble,
+  Notifications,
+  Cancel,
 } from '@mui/icons-material';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -34,6 +39,7 @@ import { chatAPI, documentAPI } from '../services/api';
 import type { Document } from '../services/api';
 import { chatStorage, type ChatMessage } from '../utils/chatStorage';
 import ChatHistorySidebar from '../components/ChatHistorySidebar';
+import { useBackgroundChat } from '../hooks/useBackgroundChat';
 import toast from 'react-hot-toast';
 
 const ChatPage: React.FC = () => {
@@ -44,7 +50,14 @@ const ChatPage: React.FC = () => {
   const [currentSessionId, setCurrentSessionId] = useState<string>('');
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [historySidebarOpen, setHistorySidebarOpen] = useState(false);
+  const [useBackgroundProcessing, setUseBackgroundProcessing] = useState(() => {
+    const saved = localStorage.getItem('useBackgroundProcessing');
+    return saved ? JSON.parse(saved) : false;
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Background chat hook
+  const backgroundChat = useBackgroundChat(currentSessionId);
 
   useEffect(() => {
     fetchDocuments();
@@ -66,6 +79,39 @@ const ChatPage: React.FC = () => {
       return () => clearTimeout(timeoutId);
     }
   }, [messages, currentSessionId, loadingHistory]);
+
+  // Save background processing preference
+  useEffect(() => {
+    localStorage.setItem('useBackgroundProcessing', JSON.stringify(useBackgroundProcessing));
+  }, [useBackgroundProcessing]);
+
+  // Listen for background chat updates via custom events
+  useEffect(() => {
+    const handleBackgroundChatUpdate = async (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const { sessionId, type } = customEvent.detail;
+      
+      if (sessionId === currentSessionId) {
+        try {
+          const savedMessages = await chatStorage.loadMessages(currentSessionId);
+          setMessages(savedMessages);
+          
+          // Reset the background chat state
+          backgroundChat.reset();
+        } catch (error) {
+          console.error('Error reloading messages after background update:', error);
+        }
+      }
+    };
+
+    // Add event listener
+    window.addEventListener('backgroundChatUpdated', handleBackgroundChatUpdate);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('backgroundChatUpdated', handleBackgroundChatUpdate);
+    };
+  }, [currentSessionId]);
 
   const fetchDocuments = async () => {
     try {
@@ -121,7 +167,7 @@ const ChatPage: React.FC = () => {
   };
 
   const handleSendMessage = async () => {
-    if (!inputMessage.trim() || loading) return;
+    if (!inputMessage.trim() || loading || backgroundChat.isProcessing) return;
 
     if (documents.length === 0) {
       toast.error('Please upload some documents first to chat with them.');
@@ -137,51 +183,72 @@ const ChatPage: React.FC = () => {
 
     setMessages(prev => [...prev, userMessage]);
     setInputMessage('');
-    setLoading(true);
 
-    try {
-      // Convert messages to conversation history format
-      const conversationHistory = messages.map(msg => ({
-        role: msg.role === 'user' ? 'user' : 'assistant',
-        content: msg.content,
-      }));
+    // Convert messages to conversation history format
+    const conversationHistory = messages.map(msg => ({
+      role: msg.role === 'user' ? 'user' : 'assistant',
+      content: msg.content,
+    }));
 
-      const response = await chatAPI.chatWithDocuments(
-        userMessage.content,
-        conversationHistory
-      );
-
-      if (response.success) {
-        const assistantMessage: ChatMessage = {
-          id: `assistant-${Date.now()}`,
-          role: 'assistant',
-          content: response.response,
-          timestamp: new Date(),
-        };
-        setMessages(prev => [...prev, assistantMessage]);
-      } else {
+    if (useBackgroundProcessing) {
+      // Use background processing
+      try {
+        await backgroundChat.startBackgroundChat(
+          userMessage.content,
+          conversationHistory
+        );
+      } catch (error) {
+        console.error('Error starting background chat:', error);
         const errorMessage: ChatMessage = {
           id: `error-${Date.now()}`,
           role: 'assistant',
-          content: response.message || 'Sorry, I encountered an error processing your request.',
+          content: 'Sorry, I encountered an error starting background processing. Please try again.',
           timestamp: new Date(),
           error: true,
         };
         setMessages(prev => [...prev, errorMessage]);
       }
-    } catch (error) {
-      console.error('Error sending message:', error);
-      const errorMessage: ChatMessage = {
-        id: `error-${Date.now()}`,
-        role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
-        timestamp: new Date(),
-        error: true,
-      };
-      setMessages(prev => [...prev, errorMessage]);
-      toast.error('Failed to send message');
-    } finally {
-      setLoading(false);
+    } else {
+      // Use regular synchronous processing
+      setLoading(true);
+      try {
+        const response = await chatAPI.chatWithDocuments(
+          userMessage.content,
+          conversationHistory
+        );
+
+        if (response.success) {
+          const assistantMessage: ChatMessage = {
+            id: `assistant-${Date.now()}`,
+            role: 'assistant',
+            content: response.response,
+            timestamp: new Date(),
+          };
+          setMessages(prev => [...prev, assistantMessage]);
+        } else {
+          const errorMessage: ChatMessage = {
+            id: `error-${Date.now()}`,
+            role: 'assistant',
+            content: response.message || 'Sorry, I encountered an error processing your request.',
+            timestamp: new Date(),
+            error: true,
+          };
+          setMessages(prev => [...prev, errorMessage]);
+        }
+      } catch (error) {
+        console.error('Error sending message:', error);
+        const errorMessage: ChatMessage = {
+          id: `error-${Date.now()}`,
+          role: 'assistant',
+          content: 'Sorry, I encountered an error. Please try again.',
+          timestamp: new Date(),
+          error: true,
+        };
+        setMessages(prev => [...prev, errorMessage]);
+        toast.error('Failed to send message');
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -462,6 +529,54 @@ const ChatPage: React.FC = () => {
 
         {/* Chat Input */}
         <Box sx={{ p: 4, borderTop: 1, borderColor: 'divider' }}>
+          {/* Background Processing Status */}
+          {backgroundChat.isProcessing && (
+            <Box sx={{ mb: 2, p: 2, backgroundColor: 'info.light', borderRadius: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <CircularProgress size={20} />
+                <Typography variant="body2" color="info.dark">
+                  {backgroundChat.status === 'pending' 
+                    ? 'Your request is queued for processing...' 
+                    : 'AI is processing your request in the background...'}
+                </Typography>
+                <Button
+                  size="small"
+                  startIcon={<Cancel />}
+                  onClick={backgroundChat.cancelJob}
+                  sx={{ ml: 'auto' }}
+                >
+                  Cancel
+                </Button>
+              </Box>
+            </Box>
+          )}
+          
+          {/* Background Processing Toggle */}
+          <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Tooltip title="Enable background processing to send messages and navigate freely while AI processes your request">
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={useBackgroundProcessing}
+                    onChange={(e) => setUseBackgroundProcessing(e.target.checked)}
+                    color="primary"
+                  />
+                }
+                label={
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Notifications sx={{ fontSize: 20 }} />
+                    <Typography variant="body2">Background Processing</Typography>
+                  </Box>
+                }
+              />
+            </Tooltip>
+            {useBackgroundProcessing && (
+              <Typography variant="caption" color="text.secondary">
+                You'll receive a notification when complete
+              </Typography>
+            )}
+          </Box>
+
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-end' }}>
             <TextField
               fullWidth
@@ -472,7 +587,7 @@ const ChatPage: React.FC = () => {
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyPress={handleKeyPress}
-              disabled={loading || documents.length === 0}
+              disabled={loading || backgroundChat.isProcessing || documents.length === 0}
               sx={{
                 '& .MuiOutlinedInput-root': {
                   borderRadius: 3,
@@ -481,16 +596,23 @@ const ChatPage: React.FC = () => {
             />
             <Button
               variant="contained"
-              endIcon={loading ? <CircularProgress size={20} /> : <Send />}
+              endIcon={
+                loading || backgroundChat.isProcessing ? <CircularProgress size={20} /> : <Send />
+              }
               onClick={handleSendMessage}
-              disabled={loading || !inputMessage.trim() || documents.length === 0}
+              disabled={
+                loading || 
+                backgroundChat.isProcessing || 
+                !inputMessage.trim() || 
+                documents.length === 0
+              }
               sx={{
                 height: 56,
                 borderRadius: 3,
                 px: 3,
               }}
             >
-              Send
+              {useBackgroundProcessing ? 'Queue' : 'Send'}
             </Button>
           </Box>
         </Box>
