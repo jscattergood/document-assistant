@@ -415,6 +415,15 @@ def parse_confluence_url(web_url: str) -> dict:
             query_params = parse_qs(parsed.query)
             page_id = query_params.get('pageId', [None])[0]
             space_key = query_params.get('key', [None])[0]
+        elif 'spaceKey=' in web_url and 'title=' in web_url:
+            # Format: https://wiki.autodesk.com/pages/viewpage.action?spaceKey=PSET&title=Page+Title
+            query_params = parse_qs(parsed.query)
+            space_key = query_params.get('spaceKey', [None])[0]
+            page_title = query_params.get('title', [None])[0]
+            if page_title:
+                # URL decode the page title
+                from urllib.parse import unquote
+                page_title = unquote(page_title).replace('+', ' ')
         elif '/display/' in web_url:
             # Format: https://wiki.autodesk.com/display/SPACE/Page+Title
             path_parts = parsed.path.split('/')

@@ -760,6 +760,7 @@ const ConfluencePage: React.FC = () => {
           <Alert severity="info" sx={{ mb: 3 }}>
             Paste Confluence page URLs, one per line. Supported formats include:
             <br />• https://wiki.domain.com/spaces/viewspace.action?key=SPACE&pageId=123456
+            <br />• https://wiki.domain.com/pages/viewpage.action?spaceKey=SPACE&title=Page+Title
             <br />• https://wiki.domain.com/display/SPACE/Page+Title
             <br />• https://wiki.domain.com/spaces/SPACE/pages/123456/Page+Title
           </Alert>

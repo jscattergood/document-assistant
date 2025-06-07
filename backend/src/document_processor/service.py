@@ -38,6 +38,7 @@ from bs4 import BeautifulSoup
 from sentence_transformers import SentenceTransformer
 import torch
 import numpy as np
+import requests
 
 from ..models.document import Document, DocumentType, DocumentStatus, ConfluencePage
 
@@ -305,6 +306,149 @@ class GPT4AllLLM(LLM):
         response = await self.achat(messages, **kwargs)
         yield response
 
+class OllamaLLM(LLM):
+    """Ollama LLM wrapper that properly inherits from LlamaIndex LLM."""
+    
+    model_name: str
+    default_max_tokens: int = 512
+    base_url: str = "http://localhost:11434"
+    
+    def __init__(self, model_name: str, **kwargs):
+        super().__init__(model_name=model_name, **kwargs)
+        self._available = False
+        self._init_model()
+    
+    def _init_model(self):
+        try:
+            # Test Ollama connection with a simple HTTP request
+            response = requests.get(f"{self.base_url}/api/tags", timeout=5)
+            if response.status_code == 200:
+                self._available = True
+                print(f"Successfully connected to Ollama: {self.model_name}")
+            else:
+                self._available = False
+                print(f"Ollama not responding: {response.status_code}")
+        except Exception as e:
+            print(f"Failed to connect to Ollama: {e}")
+            self._available = False
+    
+    def set_default_max_tokens(self, max_tokens: int):
+        """Set the default max_tokens for this LLM instance."""
+        self.default_max_tokens = max_tokens
+    
+    @property
+    def metadata(self) -> LLMMetadata:
+        return LLMMetadata(
+            context_window=8192,  # Default context window
+            num_output=self.default_max_tokens,
+            model_name=self.model_name,
+        )
+    
+    @llm_completion_callback()
+    def complete(self, prompt: str, **kwargs) -> CompletionResponse:
+        if not self._available:
+            return CompletionResponse(text="Ollama model not available. Please ensure Ollama is running.")
+        
+        try:
+            max_tokens = kwargs.get('max_tokens', self.default_max_tokens)
+            
+            # Direct HTTP call to Ollama
+            response = requests.post(
+                f"{self.base_url}/api/generate",
+                json={
+                    "model": self.model_name,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "num_predict": max_tokens
+                    }
+                },
+                timeout=120
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                return CompletionResponse(text=result.get("response", ""))
+            else:
+                return CompletionResponse(text=f"Error: Ollama API returned {response.status_code}")
+                
+        except Exception as e:
+            return CompletionResponse(text=f"Error generating response: {e}")
+    
+    @llm_completion_callback()
+    def stream_complete(self, prompt: str, **kwargs):
+        # For simplicity, just return the complete response
+        response = self.complete(prompt, **kwargs)
+        yield response
+    
+    @llm_completion_callback()
+    def chat(self, messages, **kwargs):
+        if not self._available:
+            from llama_index.core.llms.types import ChatResponse, ChatMessage
+            return ChatResponse(
+                message=ChatMessage(role="assistant", content="Ollama model not available. Please ensure Ollama is running.")
+            )
+        
+        try:
+            from llama_index.core.llms.types import ChatResponse, ChatMessage
+            
+            # Convert LlamaIndex messages to Ollama format
+            ollama_messages = []
+            for msg in messages:
+                ollama_messages.append({
+                    "role": msg.role,
+                    "content": msg.content
+                })
+            
+            # Direct HTTP call to Ollama chat API
+            response = requests.post(
+                f"{self.base_url}/api/chat",
+                json={
+                    "model": self.model_name,
+                    "messages": ollama_messages,
+                    "stream": False
+                },
+                timeout=120
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                content = result.get("message", {}).get("content", "")
+                
+                return ChatResponse(
+                    message=ChatMessage(role="assistant", content=content)
+                )
+            else:
+                return ChatResponse(
+                    message=ChatMessage(role="assistant", content=f"Error: Ollama API returned {response.status_code}")
+                )
+                
+        except Exception as e:
+            from llama_index.core.llms.types import ChatResponse, ChatMessage
+            return ChatResponse(
+                message=ChatMessage(role="assistant", content=f"Error generating response: {e}")
+            )
+    
+    @llm_completion_callback()
+    def stream_chat(self, messages, **kwargs):
+        # For simplicity, just return the complete chat response
+        response = self.chat(messages, **kwargs)
+        yield response
+    
+    async def acomplete(self, prompt: str, **kwargs) -> CompletionResponse:
+        return self.complete(prompt, **kwargs)
+    
+    async def astream_complete(self, prompt: str, **kwargs):
+        for response in self.stream_complete(prompt, **kwargs):
+            yield response
+    
+    async def achat(self, messages, **kwargs):
+        return self.chat(messages, **kwargs)
+    
+    async def astream_chat(self, messages, **kwargs):
+        for response in self.stream_chat(messages, **kwargs):
+            yield response
+
 class DocumentService:
     """Service for processing and managing documents with LlamaIndex."""
     
@@ -335,7 +479,10 @@ class DocumentService:
             "max_tokens": 512,  # Safe default that leaves plenty of room for document context
             "temperature": 0.7,
             "use_document_context": True,
-            "enable_notifications": True
+            "enable_notifications": True,
+            "llm_provider": "gpt4all",  # Default to GPT4All
+            "preferred_gpt4all_model": None,
+            "preferred_ollama_model": "llama3.2:3b"  # Default Ollama model
         }
         
         if settings_file.exists():
@@ -355,16 +502,27 @@ class DocumentService:
             # Load app settings early
             settings = self._load_app_settings()
             
-            # Initialize GPT4All LLM
-            model_path = self._get_gpt4all_model_path()
-            if model_path:
-                self.llm = GPT4AllLLM(str(self.models_dir), model_path)
+            # Initialize LLM based on provider setting
+            llm_provider = settings.get('llm_provider', 'gpt4all')
+            
+            if llm_provider == 'ollama':
+                # Initialize Ollama LLM
+                ollama_model = settings.get('preferred_ollama_model', 'llama3.2:3b')
+                self.llm = OllamaLLM(ollama_model)
                 self.llm.set_default_max_tokens(settings['max_tokens'])
                 Settings.llm = self.llm
-                print(f"Initialized GPT4All with model: {model_path} (max_tokens: {settings['max_tokens']})")
+                print(f"Initialized Ollama with model: {ollama_model} (max_tokens: {settings['max_tokens']})")
             else:
-                print("Warning: No GPT4All model found. Using mock LLM.")
-                Settings.llm = MockLLM()
+                # Initialize GPT4All LLM (default)
+                model_path = self._get_gpt4all_model_path()
+                if model_path:
+                    self.llm = GPT4AllLLM(str(self.models_dir), model_path)
+                    self.llm.set_default_max_tokens(settings['max_tokens'])
+                    Settings.llm = self.llm
+                    print(f"Initialized GPT4All with model: {model_path} (max_tokens: {settings['max_tokens']})")
+                else:
+                    print("Warning: No GPT4All model found. Using mock LLM.")
+                    Settings.llm = MockLLM()
             
             # Configure BERT embeddings
             await self.set_embedding_model(embedding_model, use_gpu)
@@ -974,28 +1132,27 @@ class DocumentService:
         # Load app settings for engine configuration
         settings = self._load_app_settings()
         
-        # Initialize query engine with proper context window utilization
-        self.query_engine = self.index.as_query_engine(
-            similarity_top_k=3,  # Increased back to 3 since we have 32K context window
-            response_mode="compact",  # Better for focused document responses
-            verbose=True  # Enable verbose logging for debugging
-        )
+        # Initialize query engine with multi-document retrieval
+        self.query_engine = self._create_multi_document_query_engine(similarity_top_k=12)
         
-        # Initialize chat engine with RAG-optimized settings
+        # Initialize chat engine with multi-document retrieval
         self.chat_engine = self.index.as_chat_engine(
-            chat_mode="context",  # Changed from "condense_question" to "context" for better document focus
-            similarity_top_k=3,  # Increased back to 3 since we have 32K context window
+            chat_mode="condense_plus_context",  # Better for multi-document conversations
+            similarity_top_k=10,  # Higher retrieval for better document coverage
             verbose=True,
-            system_prompt=f"""You are a document analysis assistant. Your responses must be based ONLY on the provided document context.
+            system_prompt=f"""You are a helpful document analysis assistant with access to multiple documents. Use ALL the provided document context to answer questions accurately and comprehensively.
 
-STRICT RULES:
-1. ONLY answer questions that can be directly answered from the document context provided
-2. If the document context does not contain the information needed to answer the question, respond with: "I cannot find information about [topic] in the provided documents."
-3. Do NOT use any general knowledge or information not explicitly stated in the documents
-4. ALWAYS cite or reference the specific document when providing answers
-5. Keep responses under {settings['max_tokens']} tokens
+CRITICAL INSTRUCTIONS:
+1. SEARCH THROUGH ALL document context provided - you may have content from multiple documents
+2. When listing documents, analyze ALL the context to identify different document sources
+3. Look for document titles, filenames, and content from different sources in your context
+4. For questions about specific documents (like "PSET-RFC"), search through all context for partial matches
+5. Provide comprehensive summaries that draw from multiple documents when available
+6. Reference specific documents by title/filename when possible
+7. If you find multiple documents, clearly distinguish between them in your response
+8. Keep responses under {settings['max_tokens']} tokens but prioritize multi-document coverage
 
-Remember: If it's not in the documents, you cannot answer it."""
+REMEMBER: You may have context from multiple documents even if not explicitly labeled - analyze all content provided."""
         )
     
     def get_embedding_info(self) -> Dict[str, Any]:
@@ -1007,6 +1164,181 @@ Remember: If it's not in the documents, you cannot answer it."""
     def get_available_models(self) -> Dict[str, Any]:
         """Get list of available embedding models."""
         return BERTEmbedding.BERT_MODELS
+    
+    def _ensure_multi_document_retrieval(self, nodes, max_nodes: int = 8) -> List:
+        """
+        Ensure retrieved nodes come from multiple documents when possible.
+        This helps with document diversity in responses.
+        """
+        if not nodes:
+            return nodes
+            
+        # Group nodes by document source
+        doc_groups = {}
+        for node in nodes:
+            # Try to get document identifier from metadata
+            doc_id = None
+            if hasattr(node, 'metadata') and node.metadata:
+                doc_id = (node.metadata.get('file_path') or 
+                         node.metadata.get('doc_id') or 
+                         node.metadata.get('title') or
+                         node.metadata.get('filename'))
+            
+            if not doc_id:
+                doc_id = 'unknown'
+                
+            if doc_id not in doc_groups:
+                doc_groups[doc_id] = []
+            doc_groups[doc_id].append(node)
+        
+        print(f"Found nodes from {len(doc_groups)} documents: {list(doc_groups.keys())}")
+        
+        # If we have multiple documents, distribute nodes more evenly
+        if len(doc_groups) > 1:
+            selected_nodes = []
+            max_per_doc = max(1, max_nodes // len(doc_groups))
+            remaining_slots = max_nodes
+            
+            # First pass: take up to max_per_doc from each document
+            for doc_id, doc_nodes in doc_groups.items():
+                take_count = min(max_per_doc, len(doc_nodes), remaining_slots)
+                selected_nodes.extend(doc_nodes[:take_count])
+                remaining_slots -= take_count
+                
+                if remaining_slots <= 0:
+                    break
+            
+            # Second pass: fill remaining slots from documents with more content
+            if remaining_slots > 0:
+                for doc_id, doc_nodes in doc_groups.items():
+                    already_taken = min(max_per_doc, len(doc_nodes))
+                    available = doc_nodes[already_taken:]
+                    
+                    take_count = min(len(available), remaining_slots)
+                    if take_count > 0:
+                        selected_nodes.extend(available[:take_count])
+                        remaining_slots -= take_count
+                        
+                        if remaining_slots <= 0:
+                            break
+            
+            print(f"Selected {len(selected_nodes)} nodes with multi-document diversity")
+            return selected_nodes[:max_nodes]
+        
+        # Single document or no metadata - return original nodes limited by max_nodes
+        return nodes[:max_nodes]
+    
+    def _create_multi_document_query_engine(self, similarity_top_k: int = 10):
+        """Create a query engine that ensures multi-document retrieval."""
+        from llama_index.core.query_engine import RetrieverQueryEngine
+        from llama_index.core.retrievers import VectorIndexRetriever
+        from llama_index.core.response_synthesizers import ResponseMode
+        
+        # Create a custom retriever that uses our multi-document logic
+        class MultiDocumentRetriever(VectorIndexRetriever):
+            def __init__(self, index, similarity_top_k, service_instance):
+                super().__init__(index, similarity_top_k=similarity_top_k)
+                self.service = service_instance
+            
+            def _retrieve(self, query_bundle):
+                # Get more nodes initially
+                nodes = super()._retrieve(query_bundle)
+                # Apply multi-document filtering
+                return self.service._ensure_multi_document_retrieval(nodes, max_nodes=8)
+        
+        # Create the custom retriever
+        retriever = MultiDocumentRetriever(
+            index=self.index,
+            similarity_top_k=similarity_top_k,
+            service_instance=self
+        )
+        
+        # Create query engine with the custom retriever
+        query_engine = RetrieverQueryEngine.from_args(
+            retriever=retriever,
+            response_mode=ResponseMode.TREE_SUMMARIZE,  # Better for multiple documents
+            verbose=True
+        )
+        
+        return query_engine
+    
+    def _create_targeted_query_engine(self, target_keywords: List[str], similarity_top_k: int = 8):
+        """Create a query engine that prioritizes specific documents by keywords."""
+        from llama_index.core.query_engine import RetrieverQueryEngine
+        from llama_index.core.retrievers import VectorIndexRetriever
+        from llama_index.core.response_synthesizers import ResponseMode
+        
+        # Create a custom retriever that prioritizes target documents
+        class TargetedRetriever(VectorIndexRetriever):
+            def __init__(self, index, similarity_top_k, target_keywords, service_instance):
+                super().__init__(index, similarity_top_k=similarity_top_k)
+                self.target_keywords = [kw.lower() for kw in target_keywords]
+                self.service = service_instance
+            
+            def _retrieve(self, query_bundle):
+                # Get initial nodes
+                nodes = super()._retrieve(query_bundle)
+                
+                # Separate targeted vs other nodes
+                targeted_nodes = []
+                other_nodes = []
+                
+                for node in nodes:
+                    # Check if this node matches any target keywords
+                    is_targeted = False
+                    if hasattr(node, 'metadata') and node.metadata:
+                        # Check various metadata fields for matches
+                        metadata_text = ' '.join([
+                            str(node.metadata.get('file_path', '')),
+                            str(node.metadata.get('title', '')),
+                            str(node.metadata.get('filename', '')),
+                            str(node.metadata.get('doc_id', ''))
+                        ]).lower()
+                        
+                        # Also check the actual content
+                        content_text = getattr(node, 'text', '').lower()
+                        combined_text = metadata_text + ' ' + content_text
+                        
+                        for keyword in self.target_keywords:
+                            if keyword in combined_text:
+                                is_targeted = True
+                                break
+                    
+                    if is_targeted:
+                        targeted_nodes.append(node)
+                    else:
+                        other_nodes.append(node)
+                
+                # Prioritize targeted nodes, then fill with others
+                max_nodes = 6  # Reduced to fit in context window
+                result_nodes = targeted_nodes[:max_nodes]
+                
+                # Fill remaining slots with other nodes
+                remaining_slots = max_nodes - len(result_nodes)
+                if remaining_slots > 0:
+                    result_nodes.extend(other_nodes[:remaining_slots])
+                
+                print(f"Targeted retrieval: Found {len(targeted_nodes)} targeted nodes, {len(other_nodes)} other nodes")
+                print(f"Selected {len(result_nodes)} total nodes for context")
+                
+                return result_nodes
+        
+        # Create the targeted retriever
+        retriever = TargetedRetriever(
+            index=self.index,
+            similarity_top_k=similarity_top_k,
+            target_keywords=target_keywords,
+            service_instance=self
+        )
+        
+        # Create query engine with the targeted retriever
+        query_engine = RetrieverQueryEngine.from_args(
+            retriever=retriever,
+            response_mode=ResponseMode.COMPACT,  # More focused for targeted retrieval
+            verbose=True
+        )
+        
+        return query_engine
     
     def _format_response_as_markdown(self, text: str) -> str:
         """Convert plain text response to markdown format."""
@@ -1136,6 +1468,15 @@ Remember: If it's not in the documents, you cannot answer it."""
         """Get the path to an available GPT4All model."""
         model_extensions = [".gguf", ".bin"]
         
+        # Check for preferred model in settings first
+        settings = self._load_app_settings()
+        preferred_model = settings.get('preferred_gpt4all_model')
+        if preferred_model:
+            preferred_path = self.models_dir / preferred_model
+            if preferred_path.exists() and preferred_path.is_file():
+                return preferred_model
+        
+        # Fall back to first available model
         for model_file in self.models_dir.iterdir():
             if model_file.is_file() and any(model_file.suffix == ext for ext in model_extensions):
                 return model_file.name
@@ -1332,8 +1673,26 @@ CONTENT:
             # Update LLM settings to ensure current max_tokens is used
             self.update_llm_settings()
             
-            # Query the index
-            response = self.query_engine.query(query)
+            # Check if this is a targeted query for specific documents
+            query_lower = query.lower()
+            target_keywords = []
+            
+            # Look for specific document keywords in the query
+            if any(keyword in query_lower for keyword in ['pset-rfc', 'pset rfc', 'inter ai agent', 'communication protocol']):
+                target_keywords.extend(['pset-rfc', 'pset_rfc', 'inter_ai_agent', 'communication'])
+            if 'orchestrator' in query_lower:
+                target_keywords.extend(['orchestrator', 'plugin'])
+            if 'google' in query_lower and 'a2a' in query_lower:
+                target_keywords.extend(['google', 'a2a', 'streaming'])
+            
+            # Use targeted retrieval if specific keywords found
+            if target_keywords:
+                print(f"Using targeted retrieval for keywords: {target_keywords}")
+                targeted_engine = self._create_targeted_query_engine(target_keywords, similarity_top_k=10)
+                response = targeted_engine.query(query)
+            else:
+                # Use standard multi-document retrieval
+                response = self.query_engine.query(query)
             
             # CLEAN UP RESPONSE: Extract only the AI-generated answer
             if hasattr(response, 'response') and response.response:
@@ -1402,8 +1761,26 @@ CONTENT:
             if not conversation_history:
                 self.chat_engine.reset()
             
-            # Chat with the engine
-            response = self.chat_engine.chat(message)
+            # Check if this is a targeted query for specific documents
+            message_lower = message.lower()
+            target_keywords = []
+            
+            # Look for specific document keywords in the message
+            if any(keyword in message_lower for keyword in ['pset-rfc', 'pset rfc', 'inter ai agent', 'communication protocol']):
+                target_keywords.extend(['pset-rfc', 'pset_rfc', 'inter_ai_agent', 'communication'])
+            if 'orchestrator' in message_lower:
+                target_keywords.extend(['orchestrator', 'plugin'])
+            if 'google' in message_lower and 'a2a' in message_lower:
+                target_keywords.extend(['google', 'a2a', 'streaming'])
+            
+            # For targeted queries, use query engine instead of chat engine for better precision
+            if target_keywords:
+                print(f"Using targeted retrieval for chat message with keywords: {target_keywords}")
+                targeted_engine = self._create_targeted_query_engine(target_keywords, similarity_top_k=10)
+                response = targeted_engine.query(message)
+            else:
+                # Use standard chat engine
+                response = self.chat_engine.chat(message)
             
             # CLEAN UP RESPONSE: Extract only the AI-generated answer
             if hasattr(response, 'response') and response.response:
@@ -1575,27 +1952,27 @@ doc_id: {doc_id}
                 # Insert the enhanced document into the index
                 self.index.insert(enhanced_llama_doc)
                 
-                # Update query and chat engines
-                self.query_engine = self.index.as_query_engine(
-                    similarity_top_k=3,
-                    response_mode="compact",
-                    verbose=True
-                )
+                # Update query and chat engines with multi-document retrieval
+                self.query_engine = self._create_multi_document_query_engine(similarity_top_k=12)
                 
+                settings = self._load_app_settings()
                 self.chat_engine = self.index.as_chat_engine(
-                    chat_mode="context",
-                    similarity_top_k=3,
+                    chat_mode="condense_plus_context",
+                    similarity_top_k=10,  # Higher retrieval for better document coverage
                     verbose=True,
-                    system_prompt="""You are a document analysis assistant. Your responses must be based ONLY on the provided document context.
+                    system_prompt=f"""You are a helpful document analysis assistant with access to multiple documents. Use ALL the provided document context to answer questions accurately and comprehensively.
 
-STRICT RULES:
-1. ONLY answer questions that can be directly answered from the document context provided
-2. If the document context does not contain the information needed to answer the question, respond with: "I cannot find information about [topic] in the provided documents."
-3. Do NOT use any general knowledge or information not explicitly stated in the documents
-4. ALWAYS cite or reference the specific document when providing answers
-5. Keep responses under {settings['max_tokens']} tokens
+CRITICAL INSTRUCTIONS:
+1. SEARCH THROUGH ALL document context provided - you may have content from multiple documents
+2. When listing documents, analyze ALL the context to identify different document sources
+3. Look for document titles, filenames, and content from different sources in your context
+4. For questions about specific documents (like "PSET-RFC"), search through all context for partial matches
+5. Provide comprehensive summaries that draw from multiple documents when available
+6. Reference specific documents by title/filename when possible
+7. If you find multiple documents, clearly distinguish between them in your response
+8. Keep responses under {settings['max_tokens']} tokens but prioritize multi-document coverage
 
-Remember: If it's not in the documents, you cannot answer it."""
+REMEMBER: You may have context from multiple documents even if not explicitly labeled - analyze all content provided."""
                 )
             
             # Mark as indexed
@@ -1683,28 +2060,27 @@ Remember: If it's not in the documents, you cannot answer it."""
             
             # Reinitialize engines to use updated settings
             if self.index:
-                # Reinitialize query engine
-                self.query_engine = self.index.as_query_engine(
-                    similarity_top_k=3,
-                    response_mode="compact",
-                    verbose=True
-                )
+                # Reinitialize query engine with multi-document retrieval
+                self.query_engine = self._create_multi_document_query_engine(similarity_top_k=12)
                 
-                # Reinitialize chat engine with updated system prompt
+                # Reinitialize chat engine with multi-document retrieval
                 self.chat_engine = self.index.as_chat_engine(
-                    chat_mode="context",
-                    similarity_top_k=3,
+                    chat_mode="condense_plus_context",
+                    similarity_top_k=10,  # Higher retrieval for better document coverage
                     verbose=True,
-                    system_prompt=f"""You are a document analysis assistant. Your responses must be based ONLY on the provided document context.
+                    system_prompt=f"""You are a helpful document analysis assistant with access to multiple documents. Use ALL the provided document context to answer questions accurately and comprehensively.
 
-STRICT RULES:
-1. ONLY answer questions that can be directly answered from the document context provided
-2. If the document context does not contain the information needed to answer the question, respond with: "I cannot find information about [topic] in the provided documents."
-3. Do NOT use any general knowledge or information not explicitly stated in the documents
-4. ALWAYS cite or reference the specific document when providing answers
-5. Keep responses under {settings['max_tokens']} tokens
+CRITICAL INSTRUCTIONS:
+1. SEARCH THROUGH ALL document context provided - you may have content from multiple documents
+2. When listing documents, analyze ALL the context to identify different document sources
+3. Look for document titles, filenames, and content from different sources in your context
+4. For questions about specific documents (like "PSET-RFC"), search through all context for partial matches
+5. Provide comprehensive summaries that draw from multiple documents when available
+6. Reference specific documents by title/filename when possible
+7. If you find multiple documents, clearly distinguish between them in your response
+8. Keep responses under {settings['max_tokens']} tokens but prioritize multi-document coverage
 
-Remember: If it's not in the documents, you cannot answer it."""
+REMEMBER: You may have context from multiple documents even if not explicitly labeled - analyze all content provided."""
                 )
                 
                 print("Reinitialize engines with updated settings")

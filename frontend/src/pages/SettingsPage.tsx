@@ -60,6 +60,7 @@ import {
   Computer,
   Folder,
   Assessment,
+  Launch,
 } from '@mui/icons-material';
 import { useDropzone } from 'react-dropzone';
 import { modelsAPI } from '../services/api';
@@ -121,11 +122,21 @@ const SettingsPage: React.FC = () => {
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
 
+  // Provider State
+  const [currentProvider, setCurrentProvider] = useState<string>('gpt4all');
+  const [preferredGpt4allModel, setPreferredGpt4allModel] = useState<string | null>(null);
+  const [preferredOllamaModel, setPreferredOllamaModel] = useState<string>('llama3.2:3b');
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaRunning, setOllamaRunning] = useState(false);
+  const [loadingProvider, setLoadingProvider] = useState(false);
+  const [switchingProvider, setSwitchingProvider] = useState(false);
+
   useEffect(() => {
     loadModelInfo();
     loadStorageInfo();
     loadGpt4allModels();
     loadAppSettings();
+    loadProviderInfo();
   }, []);
 
   const loadModelInfo = async () => {
@@ -218,6 +229,60 @@ const SettingsPage: React.FC = () => {
       toast.error('Failed to load settings');
     } finally {
       setLoadingSettings(false);
+    }
+  };
+
+  const loadProviderInfo = async () => {
+    setLoadingProvider(true);
+    try {
+      const [providerResponse, ollamaResponse] = await Promise.all([
+        modelsAPI.getCurrentProvider(),
+        modelsAPI.getOllamaModels(),
+      ]);
+
+      if (providerResponse.success) {
+        setCurrentProvider(providerResponse.provider);
+        setPreferredGpt4allModel(providerResponse.gpt4all_model || null);
+        setPreferredOllamaModel(providerResponse.ollama_model || 'llama3.2:3b');
+      }
+
+      if (ollamaResponse.success) {
+        setOllamaModels(ollamaResponse.models);
+        setOllamaRunning(ollamaResponse.ollama_running);
+      } else {
+        setOllamaModels([]);
+        setOllamaRunning(false);
+      }
+    } catch (error) {
+      console.error('Error loading provider info:', error);
+      toast.error('Failed to load provider information');
+    } finally {
+      setLoadingProvider(false);
+    }
+  };
+
+  const handleProviderSwitch = async (provider: string, model?: string) => {
+    setSwitchingProvider(true);
+    try {
+      const response = await modelsAPI.setProvider(provider, model);
+      if (response.success) {
+        setCurrentProvider(provider);
+        if (provider === 'ollama' && model) {
+          setPreferredOllamaModel(model);
+        } else if (provider === 'gpt4all' && model) {
+          setPreferredGpt4allModel(model);
+        }
+        toast.success(response.message);
+        // Reload model info to reflect changes
+        loadGpt4allModels();
+      } else {
+        toast.error('Failed to switch provider');
+      }
+    } catch (error: any) {
+      console.error('Error switching provider:', error);
+      toast.error(error.response?.data?.detail || 'Failed to switch provider');
+    } finally {
+      setSwitchingProvider(false);
     }
   };
 
@@ -694,14 +759,130 @@ const SettingsPage: React.FC = () => {
         </TabPanel>
 
         <TabPanel value={currentTab} index={1}>
-          {/* GPT4All Language Models */}
-          <Paper elevation={2} sx={{ p: 4 }}>
+          {/* LLM Provider Selection */}
+          <Paper elevation={2} sx={{ p: 4, mb: 3 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
               <Psychology sx={{ mr: 2, color: 'primary.main' }} />
               <Typography variant="h4" component="h2">
-                GPT4All Language Models
+                Language Model Provider
               </Typography>
             </Box>
+
+            {loadingProvider ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress />
+              </Box>
+            ) : (
+              <>
+                <Grid container spacing={3}>
+                  {/* GPT4All Option */}
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <Card 
+                      variant="outlined" 
+                      sx={{ 
+                        cursor: 'pointer',
+                        border: currentProvider === 'gpt4all' ? 2 : 1,
+                        borderColor: currentProvider === 'gpt4all' ? 'primary.main' : 'divider',
+                        '&:hover': { borderColor: 'primary.main' }
+                      }}
+                      onClick={() => !switchingProvider && handleProviderSwitch('gpt4all')}
+                    >
+                      <CardContent>
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                          <Computer sx={{ mr: 2, color: 'primary.main' }} />
+                          <Typography variant="h6">GPT4All (Local)</Typography>
+                          {currentProvider === 'gpt4all' && (
+                            <Chip
+                              icon={<CheckCircle />}
+                              label="Active"
+                              size="small"
+                              color="success"
+                              sx={{ ml: 'auto' }}
+                            />
+                          )}
+                        </Box>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                          Local models that run entirely on your machine. Good privacy, works offline.
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          <strong>Current model:</strong> {preferredGpt4allModel || 'Auto-selected'}
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+
+                  {/* Ollama Option */}
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <Card 
+                      variant="outlined" 
+                      sx={{ 
+                        cursor: 'pointer',
+                        border: currentProvider === 'ollama' ? 2 : 1,
+                        borderColor: currentProvider === 'ollama' ? 'primary.main' : 'divider',
+                        '&:hover': { borderColor: 'primary.main' }
+                      }}
+                      onClick={() => !switchingProvider && ollamaRunning && handleProviderSwitch('ollama')}
+                    >
+                      <CardContent>
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                          <Speed sx={{ mr: 2, color: ollamaRunning ? 'success.main' : 'text.disabled' }} />
+                          <Typography variant="h6" color={ollamaRunning ? 'inherit' : 'text.disabled'}>
+                            Ollama (Optimized)
+                          </Typography>
+                          {currentProvider === 'ollama' && (
+                            <Chip
+                              icon={<CheckCircle />}
+                              label="Active"
+                              size="small"
+                              color="success"
+                              sx={{ ml: 'auto' }}
+                            />
+                          )}
+                        </Box>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                          Optimized local inference engine. 3-5x faster than GPT4All.
+                        </Typography>
+                        {ollamaRunning ? (
+                          <>
+                            <Typography variant="body2" color="text.secondary">
+                              <strong>Available models:</strong> {ollamaModels.length}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              <strong>Current model:</strong> {preferredOllamaModel}
+                            </Typography>
+                          </>
+                        ) : (
+                          <Alert severity="warning" sx={{ mt: 1 }}>
+                            Ollama is not running. Install and start Ollama to enable.
+                          </Alert>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                </Grid>
+
+                {/* Ollama model management moved to dedicated section below */}
+
+                {/* Switch Provider Status */}
+                {switchingProvider && (
+                  <Box sx={{ mt: 3 }}>
+                    <Typography variant="body2" sx={{ mb: 1 }}>Switching provider...</Typography>
+                    <LinearProgress />
+                  </Box>
+                )}
+              </>
+            )}
+          </Paper>
+
+          {/* GPT4All Language Models - Only show when GPT4All is selected */}
+          {currentProvider === 'gpt4all' && (
+            <Paper elevation={2} sx={{ p: 4 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+                <Psychology sx={{ mr: 2, color: 'primary.main' }} />
+                <Typography variant="h4" component="h2">
+                  GPT4All Language Models
+                </Typography>
+              </Box>
 
             {loadingGpt4allModels ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
@@ -926,6 +1107,193 @@ const SettingsPage: React.FC = () => {
               </>
             )}
           </Paper>
+          )}
+
+          {/* Ollama Language Models - Only show when Ollama is selected */}
+          {currentProvider === 'ollama' && (
+          <Paper elevation={2} sx={{ p: 4 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+              <Speed sx={{ mr: 2, color: 'primary.main' }} />
+              <Typography variant="h4" component="h2">
+                Ollama Language Models
+              </Typography>
+            </Box>
+
+            {loadingProvider ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress />
+              </Box>
+            ) : !ollamaRunning ? (
+              <Card sx={{ mb: 3, border: '2px solid', borderColor: 'warning.main' }}>
+                <CardContent>
+                  <Box sx={{ textAlign: 'center', p: 3 }}>
+                    <Warning sx={{ fontSize: 48, color: 'warning.main', mb: 2 }} />
+                    <Typography variant="h6" sx={{ mb: 1 }}>
+                      Ollama Not Running
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                      Ollama needs to be installed and running to manage models
+                    </Typography>
+                    <Button
+                      variant="outlined"
+                      href="https://ollama.ai"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      startIcon={<Launch />}
+                    >
+                      Install Ollama
+                    </Button>
+                  </Box>
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                {/* Ollama Status */}
+                <Card sx={{ mb: 3, border: '2px solid', borderColor: 'success.main' }}>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', alignItems: 'center', p: 2 }}>
+                      <CheckCircle sx={{ fontSize: 40, color: 'success.main', mr: 2 }} />
+                      <Box>
+                        <Typography variant="h6" color="success.main">
+                          Ollama Connected
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {ollamaModels.length} model{ollamaModels.length !== 1 ? 's' : ''} available
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </CardContent>
+                </Card>
+
+                {/* Available Ollama Models Table */}
+                <Typography variant="h6" sx={{ mb: 2 }}>
+                  Available Ollama Models
+                </Typography>
+                {ollamaModels.length === 0 ? (
+                  <Card sx={{ mb: 3, border: '2px dashed #ccc' }}>
+                    <CardContent>
+                      <Box sx={{ textAlign: 'center', p: 3 }}>
+                        <Download sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+                        <Typography variant="h6" sx={{ mb: 1 }}>
+                          No Models Downloaded
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                          Use the terminal to download Ollama models:
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace', p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
+                          ollama pull llama3.2:3b
+                        </Typography>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <TableContainer component={Paper} variant="outlined" sx={{ mb: 3 }}>
+                    <Table>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Model</TableCell>
+                          <TableCell>Status</TableCell>
+                          <TableCell>Performance</TableCell>
+                          <TableCell align="right">Actions</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {ollamaModels.map((model) => {
+                          const isActive = preferredOllamaModel === model;
+                          const is3B = model.includes('3b') || model.includes('3B');
+                          const is8B = model.includes('8b') || model.includes('8B');
+                          const performance = is3B ? 'Fast (3-8s)' : is8B ? 'Moderate (8-15s)' : 'Variable';
+                          const performanceColor = is3B ? 'success.main' : is8B ? 'warning.main' : 'text.secondary';
+                          
+                          return (
+                            <TableRow key={model}>
+                              <TableCell>
+                                <Box>
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <Typography variant="body1">
+                                      {model}
+                                    </Typography>
+                                    {is3B && (
+                                      <Chip
+                                        icon={<Speed />}
+                                        label="Recommended"
+                                        size="small"
+                                        color="success"
+                                      />
+                                    )}
+                                    {isActive && (
+                                      <Chip
+                                        icon={<CheckCircle />}
+                                        label="Active"
+                                        size="small"
+                                        color="primary"
+                                      />
+                                    )}
+                                  </Box>
+                                  <Typography variant="body2" color="text.secondary">
+                                    Optimized local inference with GPU acceleration
+                                  </Typography>
+                                </Box>
+                              </TableCell>
+                              <TableCell>
+                                <Chip
+                                  icon={<CheckCircle />}
+                                  label="Available"
+                                  color="success"
+                                  size="small"
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="body2" sx={{ color: performanceColor }}>
+                                  {performance}
+                                </Typography>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                                  {!isActive && (
+                                    <Tooltip title="Set as active model">
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => handleProviderSwitch('ollama', model)}
+                                        disabled={switchingProvider}
+                                      >
+                                        <PlayArrow />
+                                      </IconButton>
+                                    </Tooltip>
+                                  )}
+                                </Box>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+
+                <Box sx={{ display: 'flex', gap: 2, mt: 3 }}>
+                  <Button
+                    variant="outlined"
+                    onClick={loadProviderInfo}
+                    disabled={loadingProvider}
+                    startIcon={<Refresh />}
+                  >
+                    Refresh Models
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    href="https://ollama.ai/library"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    startIcon={<Launch />}
+                  >
+                    Browse Model Library
+                  </Button>
+                </Box>
+              </>
+            )}
+          </Paper>
+          )}
         </TabPanel>
 
         <TabPanel value={currentTab} index={2}>

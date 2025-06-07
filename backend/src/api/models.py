@@ -452,6 +452,12 @@ async def set_active_gpt4all_model(
         # Update the service
         service.llm = new_llm
         
+        # Save the preference to settings
+        current_settings = _load_settings()
+        current_settings_dict = current_settings.dict()
+        current_settings_dict['preferred_gpt4all_model'] = filename
+        _save_settings_dict(current_settings_dict)
+        
         return {
             "success": True,
             "message": f"Successfully switched to model: {filename}",
@@ -778,6 +784,19 @@ def _save_settings(settings: AppSettings) -> bool:
         print(f"Error saving settings: {e}")
         return False
 
+def _save_settings_dict(settings_dict: dict) -> bool:
+    """Save settings dictionary to file."""
+    try:
+        settings_file = _get_settings_file_path()
+        settings_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(settings_file, 'w') as f:
+            json.dump(settings_dict, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"Error saving settings: {e}")
+        return False
+
 @router.get("/settings", response_model=AppSettings)
 async def get_app_settings():
     """Get current application settings."""
@@ -854,4 +873,171 @@ async def reset_app_settings():
             raise HTTPException(status_code=500, detail="Failed to reset settings")
             
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error resetting settings: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Error resetting settings: {str(e)}")
+
+# Provider Management Endpoints
+
+@router.get("/providers/current")
+async def get_current_provider(service: DocumentService = Depends(get_document_service)):
+    """Get the current LLM provider (gpt4all or ollama)."""
+    try:
+        # Load settings from both the settings file and the DocumentService
+        settings = _load_settings()
+        settings_dict = settings.dict()
+        
+        # Also load settings from DocumentService to get the complete state
+        service_settings = service._load_app_settings()
+        
+        # Add provider info if not present
+        provider = service_settings.get('llm_provider', 'gpt4all')
+        gpt4all_model = service_settings.get('preferred_gpt4all_model')
+        ollama_model = service_settings.get('preferred_ollama_model', 'llama3.2:3b')
+        
+        # If GPT4All model is not set in settings, get the currently active one
+        if not gpt4all_model and provider == 'gpt4all':
+            gpt4all_model = service._get_gpt4all_model_path()
+        
+        return {
+            "success": True,
+            "provider": provider,
+            "gpt4all_model": gpt4all_model,
+            "ollama_model": ollama_model
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting provider info: {str(e)}")
+
+@router.post("/providers/set")
+async def set_llm_provider(
+    provider: str,
+    model: Optional[str] = None,
+    service: DocumentService = Depends(get_document_service)
+):
+    """Switch between GPT4All and Ollama providers."""
+    try:
+        if provider not in ['gpt4all', 'ollama']:
+            raise HTTPException(status_code=400, detail="Provider must be 'gpt4all' or 'ollama'")
+        
+        # Load current settings
+        current_settings = _load_settings()
+        settings_dict = current_settings.dict()
+        
+        # Update provider
+        settings_dict['llm_provider'] = provider
+        
+        if provider == 'ollama':
+            if model:
+                settings_dict['preferred_ollama_model'] = model
+            
+            # Initialize Ollama LLM
+            from ..document_processor.service import OllamaLLM
+            from llama_index.core import Settings
+            ollama_model = settings_dict.get('preferred_ollama_model', 'llama3.2:3b')
+            new_llm = OllamaLLM(ollama_model)
+            
+            if not new_llm._available:
+                raise HTTPException(status_code=400, detail=f"Failed to connect to Ollama. Make sure Ollama is running and model '{ollama_model}' is available.")
+            
+            # Update service and global settings
+            service.llm = new_llm
+            Settings.llm = new_llm
+            new_llm.set_default_max_tokens(settings_dict.get('max_tokens', 512))
+            message = f"Successfully switched to Ollama with model: {ollama_model}"
+            
+        else:  # gpt4all
+            if model:
+                # Validate model exists
+                models_dir = service.models_dir
+                model_file = models_dir / model
+                if not model_file.exists():
+                    raise HTTPException(status_code=404, detail="GPT4All model file not found")
+                settings_dict['preferred_gpt4all_model'] = model
+            
+            # Initialize GPT4All LLM
+            from ..document_processor.service import GPT4AllLLM
+            from llama_index.core import Settings
+            gpt4all_model = service._get_gpt4all_model_path()
+            if not gpt4all_model:
+                raise HTTPException(status_code=400, detail="No GPT4All model available")
+            
+            new_llm = GPT4AllLLM(str(service.models_dir), gpt4all_model)
+            if not new_llm._available:
+                raise HTTPException(status_code=400, detail="Failed to initialize GPT4All model")
+            
+            # Update service and global settings
+            service.llm = new_llm
+            Settings.llm = new_llm
+            new_llm.set_default_max_tokens(settings_dict.get('max_tokens', 512))
+            message = f"Successfully switched to GPT4All with model: {gpt4all_model}"
+        
+        # Reinitialize query and chat engines with new LLM using multi-document retrieval
+        if service.index:
+            service.query_engine = service._create_multi_document_query_engine(similarity_top_k=12)
+            
+            service.chat_engine = service.index.as_chat_engine(
+                chat_mode="condense_plus_context",  # Better for multiple document retrieval
+                similarity_top_k=10,  # Higher retrieval for better document coverage
+                verbose=True,
+                system_prompt=f"""You are a helpful document analysis assistant with access to multiple documents. Use ALL the provided document context to answer questions accurately and comprehensively.
+
+CRITICAL INSTRUCTIONS:
+1. SEARCH THROUGH ALL document context provided - you may have content from multiple documents
+2. When listing documents, analyze ALL the context to identify different document sources
+3. Look for document titles, filenames, and content from different sources in your context
+4. For questions about specific documents (like "PSET-RFC"), search through all context for partial matches
+5. Provide comprehensive summaries that draw from multiple documents when available
+6. Reference specific documents by title/filename when possible
+7. If you find multiple documents, clearly distinguish between them in your response
+8. Keep responses under {settings_dict.get('max_tokens', 512)} tokens but prioritize multi-document coverage
+
+REMEMBER: You may have context from multiple documents even if not explicitly labeled - analyze all content provided."""
+            )
+        
+        # Save settings
+        _save_settings_dict(settings_dict)
+        
+        return {
+            "success": True,
+            "message": message,
+            "provider": provider,
+            "model": model or (settings_dict.get('preferred_ollama_model') if provider == 'ollama' else gpt4all_model)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error switching provider: {str(e)}")
+
+@router.get("/ollama/models")
+async def get_ollama_models():
+    """Get available Ollama models."""
+    try:
+        import requests
+        
+        # Try to connect to Ollama
+        try:
+            response = requests.get("http://localhost:11434/api/tags", timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                models = [model['name'] for model in data.get('models', [])]
+                return {
+                    "success": True,
+                    "models": models,
+                    "ollama_running": True
+                }
+            else:
+                return {
+                    "success": False,
+                    "models": [],
+                    "ollama_running": False,
+                    "message": "Ollama is not responding"
+                }
+        except requests.RequestException:
+            return {
+                "success": False,
+                "models": [],
+                "ollama_running": False,
+                "message": "Ollama is not running. Install and start Ollama first."
+            }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting Ollama models: {str(e)}") 

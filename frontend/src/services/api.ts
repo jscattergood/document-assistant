@@ -484,6 +484,41 @@ export const modelsAPI = {
     const response = await api.post('/models/settings/reset');
     return response.data;
   },
+
+  // Provider Management
+  async getCurrentProvider(): Promise<{
+    success: boolean;
+    provider: string;
+    gpt4all_model?: string;
+    ollama_model?: string;
+  }> {
+    const response = await api.get('/models/providers/current');
+    return response.data;
+  },
+
+  async setProvider(provider: string, model?: string): Promise<{
+    success: boolean;
+    message: string;
+    provider: string;
+    model?: string;
+  }> {
+    const params = new URLSearchParams({ provider });
+    if (model) {
+      params.append('model', model);
+    }
+    const response = await api.post(`/models/providers/set?${params.toString()}`);
+    return response.data;
+  },
+
+  async getOllamaModels(): Promise<{
+    success: boolean;
+    models: string[];
+    ollama_running: boolean;
+    message?: string;
+  }> {
+    const response = await api.get('/models/ollama/models');
+    return response.data;
+  },
 };
 
 export default api; 
