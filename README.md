@@ -11,6 +11,9 @@ An AI-powered application for analyzing documents and web pages, helping create 
   - **Ollama Integration** - Advanced local LLM support with automatic process management
 - **🔗 Confluence Integration**: Read existing pages and generate new Confluence content
 - **💬 AI-Powered Chat**: Query your documents using natural language with intelligent context
+  - **Background Processing** - Non-blocking chat with browser notifications
+  - **Conversation History** - Configurable context management (0-50 messages)
+  - **Smart Context Control** - Optimize token usage and response quality
 - **✍️ Document Generation**: AI-assisted creation of new documents and pages
 - **📊 Rich Metadata**: Advanced file analysis including content statistics, format-specific data
 - **🛠️ Model Management**: Easy download, switch, and manage AI models through the UI
@@ -119,8 +122,22 @@ docker-compose up --build
 
 ### Chat & Generation
 1. **Chat**: Ask questions about your documents
+   - **Sync Mode**: Immediate responses (default)
+   - **Background Mode**: Non-blocking processing with notifications
+   - **Conversation Context**: AI remembers previous messages for continuity
 2. **Generate**: Create new content based on your knowledge base
 3. **Context**: AI automatically uses relevant document content
+
+### Advanced Chat Settings
+1. **Background Processing**: Enable non-blocking chat in Settings
+   - Continue browsing while AI processes your request
+   - Browser notifications when responses are ready
+   - Responses appear in the correct conversation
+
+2. **Conversation Context Management**: Control how much chat history is used
+   - **Enable/Disable Context**: Toggle conversation memory on/off
+   - **Max History**: Limit previous messages (0-50) for performance
+   - **Token Optimization**: Reduce API costs and improve response times
 
 ### Confluence Integration  
 1. **Configure**: Add Confluence credentials in Settings
@@ -173,7 +190,9 @@ The `data/app_settings.json` file contains application configuration:
   "llm_provider": "ollama",
   "preferred_ollama_model": "llama3.2:3b",
   "auto_start_ollama": false,
-  "max_tokens": 512
+  "max_tokens": 512,
+  "max_conversation_history": 10,
+  "enable_conversation_context": true
 }
 ```
 
@@ -181,6 +200,8 @@ The `data/app_settings.json` file contains application configuration:
 - `llm_provider`: "gpt4all" or "ollama"
 - `auto_start_ollama`: Automatically start Ollama on backend startup
 - `preferred_ollama_model`: Default Ollama model to use
+- `max_conversation_history`: Maximum previous messages to include (0-50)
+- `enable_conversation_context`: Whether to include chat history in responses
 
 ## Tech Stack
 
@@ -318,8 +339,16 @@ MIT License - see LICENSE file for details
 - `POST /api/documents/upload` - Upload and process documents
 - `GET /api/documents/` - List all documents with metadata
 - `POST /api/chat/query` - Query documents with natural language
+- `POST /api/chat/chat` - Chat with documents (with conversation history)
+- `POST /api/chat/chat-background` - Start background chat processing
+- `GET /api/chat/job/{job_id}` - Check background job status
+- `DELETE /api/chat/job/{job_id}` - Clean up completed background job
 - `POST /api/chat/generate` - Generate new content
 - `POST /api/confluence/import` - Import Confluence pages
+
+### Settings & Configuration API
+- `GET /api/models/settings` - Get current application settings
+- `POST /api/models/settings` - Update application settings (tokens, context, etc.)
 
 ### Model Management API  
 - `GET /api/models/embeddings/available` - List BERT models
