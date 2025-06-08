@@ -499,6 +499,8 @@ export const modelsAPI = {
     temperature: number;
     use_document_context: boolean;
     enable_notifications: boolean;
+    max_conversation_history: number;
+    enable_conversation_context: boolean;
   }> {
     const response = await api.get('/models/settings');
     return response.data;
@@ -509,6 +511,8 @@ export const modelsAPI = {
     temperature?: number;
     use_document_context?: boolean;
     enable_notifications?: boolean;
+    max_conversation_history?: number;
+    enable_conversation_context?: boolean;
   }): Promise<{
     success: boolean;
     message: string;

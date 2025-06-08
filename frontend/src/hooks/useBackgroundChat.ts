@@ -18,8 +18,8 @@ export const useBackgroundChat = (sessionId?: string) => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Only restore if there's an active job
-        if (parsed.jobId && (parsed.status === 'pending' || parsed.status === 'processing')) {
+        // Only restore if there's an active job and session ID matches
+        if (parsed.jobId && (parsed.status === 'pending' || parsed.status === 'processing') && parsed.sessionId === sessionId) {
           return parsed;
         }
       } catch (error) {
@@ -42,6 +42,16 @@ export const useBackgroundChat = (sessionId?: string) => {
     sessionStorage.setItem('backgroundChatState', JSON.stringify(state));
   }, [state]);
 
+  // Update session ID in state when sessionId prop changes
+  useEffect(() => {
+    if (sessionId && sessionId !== state.sessionId) {
+      setState(prev => ({
+        ...prev,
+        sessionId,
+      }));
+    }
+  }, [sessionId, state.sessionId]);
+
   const startPolling = useCallback((jobId: string) => {
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current);
@@ -61,10 +71,10 @@ export const useBackgroundChat = (sessionId?: string) => {
         }));
 
         if (jobStatus.status === 'completed') {
-          // Save response directly to IndexedDB regardless of component mount status
-          const currentSessionId = sessionId || sessionStorage.getItem('currentChatSessionId');
+          // Use the session ID from the state, which was set when the job started
+          const jobSessionId = state.sessionId;
           
-          if (currentSessionId && jobStatus.response) {
+          if (jobSessionId && jobStatus.response) {
             // Create assistant message
             const assistantMessage: ChatMessage = {
               id: `assistant-${Date.now()}`,
@@ -76,13 +86,13 @@ export const useBackgroundChat = (sessionId?: string) => {
             // Save the response immediately using async/await for better error handling
             (async () => {
               try {
-                const currentMessages = await chatStorage.loadMessages(currentSessionId);
+                const currentMessages = await chatStorage.loadMessages(jobSessionId);
                 const updatedMessages = [...currentMessages, assistantMessage];
-                await chatStorage.saveMessages(currentSessionId, updatedMessages);
+                await chatStorage.saveMessages(jobSessionId, updatedMessages);
                 
                 // Fire a custom event to notify components that messages were updated
                 window.dispatchEvent(new CustomEvent('backgroundChatUpdated', { 
-                  detail: { sessionId: currentSessionId, type: 'completed' } 
+                  detail: { sessionId: jobSessionId, type: 'completed' } 
                 }));
                 
                 // Update state to trigger UI refresh
@@ -119,10 +129,10 @@ export const useBackgroundChat = (sessionId?: string) => {
           }, 1000);
 
         } else if (jobStatus.status === 'failed') {
-          // Save error message directly to IndexedDB regardless of component mount status
-          const currentSessionId = sessionId || sessionStorage.getItem('currentChatSessionId');
+          // Use the session ID from the state, which was set when the job started
+          const jobSessionId = state.sessionId;
           
-          if (currentSessionId) {
+          if (jobSessionId) {
             // Create error message
             const errorMessage: ChatMessage = {
               id: `error-${Date.now()}`,
@@ -135,13 +145,13 @@ export const useBackgroundChat = (sessionId?: string) => {
             // Save the error immediately using async/await for better error handling
             (async () => {
               try {
-                const currentMessages = await chatStorage.loadMessages(currentSessionId);
+                const currentMessages = await chatStorage.loadMessages(jobSessionId);
                 const updatedMessages = [...currentMessages, errorMessage];
-                await chatStorage.saveMessages(currentSessionId, updatedMessages);
+                await chatStorage.saveMessages(jobSessionId, updatedMessages);
                 
                 // Fire a custom event to notify components that messages were updated
                 window.dispatchEvent(new CustomEvent('backgroundChatUpdated', { 
-                  detail: { sessionId: currentSessionId, type: 'failed' } 
+                  detail: { sessionId: jobSessionId, type: 'failed' } 
                 }));
                 
                 // Update state to trigger UI refresh
@@ -186,7 +196,7 @@ export const useBackgroundChat = (sessionId?: string) => {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [state.sessionId]); // Add state.sessionId as dependency
 
   // Resume polling if there's an active job on mount and cleanup on unmount
   useEffect(() => {
@@ -228,9 +238,9 @@ export const useBackgroundChat = (sessionId?: string) => {
         documentIds
       );
 
-      // Store current session ID for background processing
-      if (sessionId) {
-        sessionStorage.setItem('currentChatSessionId', sessionId);
+      // Ensure we have a valid session ID
+      if (!sessionId) {
+        throw new Error('No session ID provided for background chat');
       }
 
       setState({
@@ -238,7 +248,7 @@ export const useBackgroundChat = (sessionId?: string) => {
         status: 'pending',
         response: null,
         error: null,
-        sessionId,
+        sessionId, // Store the current session ID in the state
       });
 
       toast.success('Chat request sent! Processing in background...');
@@ -250,7 +260,7 @@ export const useBackgroundChat = (sessionId?: string) => {
       toast.error('Failed to start background chat');
       throw error;
     }
-  }, [startPolling]);
+  }, [sessionId, startPolling]);
 
   const cancelJob = useCallback(() => {
     if (pollingIntervalRef.current) {

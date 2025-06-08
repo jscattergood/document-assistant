@@ -122,6 +122,8 @@ const SettingsPage: React.FC = () => {
   const [enableNotifications, setEnableNotifications] = useState(true);
   const [maxTokens, setMaxTokens] = useState(512);
   const [temperature, setTemperature] = useState(0.7);
+  const [maxConversationHistory, setMaxConversationHistory] = useState(10);
+  const [enableConversationContext, setEnableConversationContext] = useState(true);
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
 
@@ -139,6 +141,9 @@ const SettingsPage: React.FC = () => {
   const [loadingOllamaStatus, setLoadingOllamaStatus] = useState(false);
   const [controllingOllama, setControllingOllama] = useState(false);
   const [autoStartOllama, setAutoStartOllama] = useState(false);
+
+  // Loading states
+  const [loadingEmbedding, setLoadingEmbedding] = useState(false);
 
   useEffect(() => {
     loadModelInfo();
@@ -246,6 +251,8 @@ const SettingsPage: React.FC = () => {
         setTemperature(response.temperature);
         setUseDocumentContext(response.use_document_context);
         setEnableNotifications(response.enable_notifications);
+        setMaxConversationHistory(response.max_conversation_history);
+        setEnableConversationContext(response.enable_conversation_context);
       }
     } catch (error) {
       console.error('Error loading settings:', error);
@@ -404,6 +411,8 @@ const SettingsPage: React.FC = () => {
         temperature: temperature,
         use_document_context: useDocumentContext,
         enable_notifications: enableNotifications,
+        max_conversation_history: maxConversationHistory,
+        enable_conversation_context: enableConversationContext,
       });
       
       if (response.success) {
@@ -1690,6 +1699,60 @@ const SettingsPage: React.FC = () => {
                     }
                     label="Use document context in responses"
                   />
+
+                  <FormControlLabel
+                    control={
+                      <Switch 
+                        checked={enableNotifications}
+                        onChange={(e) => setEnableNotifications(e.target.checked)}
+                        disabled={loadingSettings}
+                      />
+                    }
+                    label="Enable browser notifications"
+                  />
+
+                  {/* Conversation Context Settings */}
+                  <Divider sx={{ my: 3 }} />
+                  <Typography variant="h6" gutterBottom>
+                    Conversation Context
+                  </Typography>
+
+                  <FormControlLabel
+                    control={
+                      <Switch 
+                        checked={enableConversationContext}
+                        onChange={(e) => setEnableConversationContext(e.target.checked)}
+                        disabled={loadingSettings}
+                      />
+                    }
+                    label="Include conversation history in responses"
+                  />
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                    When enabled, the AI remembers previous messages in the conversation for better context.
+                  </Typography>
+
+                  <Box sx={{ mb: 3 }}>
+                    <Typography gutterBottom>Max Conversation History</Typography>
+                    <Slider
+                      value={maxConversationHistory}
+                      onChange={(_, value) => setMaxConversationHistory(value as number)}
+                      min={0}
+                      max={50}
+                      step={5}
+                      marks={[
+                        { value: 0, label: '0' },
+                        { value: 10, label: '10' },
+                        { value: 20, label: '20' },
+                        { value: 30, label: '30' },
+                        { value: 50, label: '50' }
+                      ]}
+                      valueLabelDisplay="auto"
+                      disabled={loadingSettings || !enableConversationContext}
+                    />
+                    <Typography variant="body2" color="text.secondary">
+                      Maximum number of previous messages to include for context. Set to 0 to disable history. (Higher values use more tokens)
+                    </Typography>
+                  </Box>
 
                   <Box sx={{ display: 'flex', gap: 2, mt: 3 }}>
                     <Button

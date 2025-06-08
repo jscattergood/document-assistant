@@ -148,4 +148,24 @@ class ConfluenceTemporaryIngestResponse(BaseModel):
     page_id: str = Field(..., description="Temporary page ID for chat")
     title: str = Field(..., description="Page title")
     content_preview: str = Field(..., description="Preview of page content")
-    expires_at: datetime = Field(..., description="When temporary ingestion expires") 
+    expires_at: datetime = Field(..., description="When temporary ingestion expires")
+
+class AppSettings(BaseModel):
+    """Application settings."""
+    max_tokens: int = 512
+    temperature: float = 0.7
+    use_document_context: bool = True
+    enable_notifications: bool = True
+    # Add conversation context settings
+    max_conversation_history: int = 10  # Maximum number of previous messages to include
+    enable_conversation_context: bool = True  # Whether to include conversation history at all
+
+class AppSettingsUpdate(BaseModel):
+    """Update request for application settings."""
+    max_tokens: Optional[int] = None
+    temperature: Optional[float] = None
+    use_document_context: Optional[bool] = None
+    enable_notifications: Optional[bool] = None
+    # Add conversation context settings
+    max_conversation_history: Optional[int] = None
+    enable_conversation_context: Optional[bool] = None 

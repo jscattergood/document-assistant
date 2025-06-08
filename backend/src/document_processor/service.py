@@ -482,7 +482,10 @@ class DocumentService:
             "enable_notifications": True,
             "llm_provider": "gpt4all",  # Default to GPT4All
             "preferred_gpt4all_model": None,
-            "preferred_ollama_model": "llama3.2:3b"  # Default Ollama model
+            "preferred_ollama_model": "llama3.2:3b",  # Default Ollama model
+            # Add conversation context settings
+            "max_conversation_history": 10,  # Maximum number of previous messages to include
+            "enable_conversation_context": True,  # Whether to include conversation history at all
         }
         
         if settings_file.exists():
@@ -1760,6 +1763,22 @@ CONTENT:
             print(f"Error in query_documents: {e}")
             return f"Error querying documents: {str(e)}"
     
+    def _truncate_conversation_history(self, conversation_history: Optional[List], settings: Dict[str, Any]) -> Optional[List]:
+        """Truncate conversation history based on settings."""
+        if not conversation_history or not settings.get('enable_conversation_context', True):
+            return None
+        
+        max_history = settings.get('max_conversation_history', 10)
+        if max_history <= 0:
+            return None
+        
+        # Keep the most recent messages (pairs of user/assistant)
+        # We want to keep complete conversation turns, so we'll keep pairs
+        if len(conversation_history) > max_history:
+            return conversation_history[-max_history:]
+        
+        return conversation_history
+
     async def chat_with_documents(self, message: str, conversation_history: Optional[List] = None) -> str:
         """Chat with documents using the chat engine."""
         try:
@@ -1769,8 +1788,14 @@ CONTENT:
             # Update LLM settings to ensure current max_tokens is used
             self.update_llm_settings()
             
-            # Reset chat engine if new conversation
-            if not conversation_history:
+            # Load settings for conversation history management
+            settings = self._load_app_settings()
+            
+            # Truncate conversation history based on settings
+            truncated_history = self._truncate_conversation_history(conversation_history, settings)
+            
+            # Reset chat engine if new conversation or no history
+            if not truncated_history:
                 self.chat_engine.reset()
             
             # First, check if this is a document-specific query that should use direct document loading
@@ -1803,6 +1828,12 @@ CONTENT:
                 targeted_engine = self._create_targeted_query_engine(target_keywords, similarity_top_k=10)
                 response = targeted_engine.query(message)
             else:
+                # Log conversation history info for debugging
+                if truncated_history:
+                    print(f"Using conversation history: {len(truncated_history)} messages (max: {settings.get('max_conversation_history', 10)})")
+                else:
+                    print("No conversation history used")
+                
                 # Use standard chat engine
                 response = self.chat_engine.chat(message)
             
@@ -1851,7 +1882,6 @@ CONTENT:
                 return "I couldn't find relevant information in the documents to answer your question."
             
             # Truncate response to respect max_tokens setting
-            settings = self._load_app_settings()
             result = self._truncate_response_to_max_tokens(result, settings['max_tokens'])
             
             return result

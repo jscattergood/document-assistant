@@ -42,6 +42,8 @@ class AppSettings(BaseModel):
     temperature: float = 0.7
     use_document_context: bool = True
     enable_notifications: bool = True
+    max_conversation_history: int = 10
+    enable_conversation_context: bool = True
 
 class AppSettingsUpdate(BaseModel):
     """Update request for application settings."""
@@ -49,6 +51,8 @@ class AppSettingsUpdate(BaseModel):
     temperature: Optional[float] = None
     use_document_context: Optional[bool] = None
     enable_notifications: Optional[bool] = None
+    max_conversation_history: Optional[int] = None
+    enable_conversation_context: Optional[bool] = None
 
 class GPT4AllModelInfo(BaseModel):
     """Information about a GPT4All model."""
@@ -797,12 +801,20 @@ def _save_settings_dict(settings_dict: dict) -> bool:
         print(f"Error saving settings: {e}")
         return False
 
-@router.get("/settings", response_model=AppSettings)
+@router.get("/settings")
 async def get_app_settings():
     """Get current application settings."""
     try:
         settings = _load_settings()
-        return settings
+        return {
+            "success": True,
+            "max_tokens": settings.max_tokens,
+            "temperature": settings.temperature,
+            "use_document_context": settings.use_document_context,
+            "enable_notifications": settings.enable_notifications,
+            "max_conversation_history": getattr(settings, 'max_conversation_history', 10),
+            "enable_conversation_context": getattr(settings, 'enable_conversation_context', True),
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading settings: {str(e)}")
 
@@ -837,6 +849,15 @@ async def update_app_settings(update: AppSettingsUpdate, service: DocumentServic
             
         if update.enable_notifications is not None:
             current_settings.enable_notifications = update.enable_notifications
+        
+        # Handle new conversation context settings
+        if update.max_conversation_history is not None:
+            if not (0 <= update.max_conversation_history <= 50):
+                raise HTTPException(status_code=400, detail="max_conversation_history must be between 0 and 50")
+            current_settings.max_conversation_history = update.max_conversation_history
+            
+        if update.enable_conversation_context is not None:
+            current_settings.enable_conversation_context = update.enable_conversation_context
         
         # Save updated settings
         if _save_settings(current_settings):

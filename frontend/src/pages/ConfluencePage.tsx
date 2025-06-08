@@ -154,10 +154,7 @@ const ConfluencePage: React.FC = () => {
             status: 'connected', // Assume valid since we have saved credentials
             message: 'Using saved credentials (test connection to verify)',
           });
-        }
-        
-        // Show that configuration was loaded
-        console.log('Loaded saved Confluence configuration from localStorage');
+        }        
       }
     } catch (error) {
       console.error('Error loading saved config from localStorage:', error);
