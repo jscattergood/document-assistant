@@ -144,6 +144,148 @@ docker-compose up --build
 2. **Import**: Sync existing pages for context
 3. **Generate**: Create new Confluence content with AI assistance
 
+## ✨ New: Advanced AI-Powered Confluence Content Generation
+
+The application now includes sophisticated AI-powered content generation specifically designed for Confluence:
+
+### 🎯 Content Generation Features
+
+- **Professional Templates**: 6 built-in templates for common content types
+  - **Technical Documentation**: API docs, system architecture, implementation guides
+  - **Meeting Notes**: Structured meeting documentation with action items
+  - **Project Plans**: Comprehensive project planning with timelines and milestones
+  - **Knowledge Base Articles**: Educational content with step-by-step instructions
+  - **Tutorials**: Hands-on guides with code examples and validation steps
+  - **Custom Templates**: Flexible templates for any content type
+
+- **AI-Enhanced Content Creation**:
+  - **Smart Prompting**: Context-aware prompts based on your document library
+  - **Automatic Formatting**: Converts to proper Confluence markup automatically
+  - **Content Enhancement**: AI-powered content improvement and restructuring
+  - **Direct Publishing**: Generate and publish to Confluence in one step
+
+- **Document-Aware Generation**: 
+  - Uses your existing documents as source material
+  - Maintains consistency with your organization's style and tone
+  - Incorporates relevant information from your knowledge base
+  - Creates cross-references and links to related content
+
+### 🚀 Quick Start Guide for Content Generation
+
+1. **Setup Confluence Connection**:
+   ```
+   - Navigate to Confluence tab → Configuration
+   - Enter your Confluence URL and credentials
+   - Test connection and save settings
+   ```
+
+2. **Generate Content**:
+   ```
+   - Go to "Content Generation" tab
+   - Choose a template (e.g., "Technical Documentation")
+   - Enter your topic (e.g., "API Integration Guide")
+   - Select source documents (optional)
+   - Add additional context if needed
+   - Click "Generate Content"
+   ```
+
+3. **Review and Enhance**:
+   ```
+   - Preview generated content
+   - Use "Enhance" button to improve formatting/structure
+   - Copy to clipboard or publish directly to Confluence
+   ```
+
+### 📋 Content Generation Templates
+
+**Technical Documentation Template**:
+- Overview and Architecture
+- Requirements and Dependencies  
+- Implementation Details
+- Configuration Instructions
+- Testing and Deployment
+- Troubleshooting Guide
+
+**Meeting Notes Template**:
+- Meeting Information and Attendees
+- Agenda and Discussion Points
+- Decisions and Action Items
+- Next Steps and Follow-ups
+
+**Project Plan Template**:
+- Project Overview and Objectives
+- Scope and Success Criteria
+- Timeline and Milestones
+- Resources and Risk Management
+- Communication Plan
+
+**Knowledge Base Template**:
+- Article Summary and Prerequisites
+- Core Information and Best Practices
+- Step-by-Step Instructions
+- Examples and Troubleshooting
+- Related Resources
+
+**Tutorial Template**:
+- Learning Objectives and Setup
+- Step-by-Step Instructions
+- Code Examples and Validation
+- Testing and Next Steps
+
+### 🎨 Advanced Features
+
+**Smart Content Enhancement**:
+```
+- Automatic structure optimization
+- Professional tone and clarity improvements
+- Confluence-specific formatting (tables, panels, code blocks)
+- Cross-reference generation
+```
+
+**Direct Confluence Publishing**:
+```
+- One-click publishing to your Confluence space
+- Automatic parent page assignment
+- Proper metadata and linking
+- Version management
+```
+
+**Context-Aware Generation**:
+```
+- Analyzes your document library for relevant information
+- Maintains organizational style and terminology
+- Creates contextually appropriate content
+- Suggests related topics and cross-links
+```
+
+### 💡 Usage Examples
+
+**Generate API Documentation**:
+```
+Topic: "User Authentication API"
+Template: Technical Documentation
+Context: "RESTful API with JWT tokens, OAuth2 support"
+Source Documents: [existing API specs, security guidelines]
+Result: Complete API documentation with endpoints, examples, security details
+```
+
+**Create Meeting Notes**:
+```
+Topic: "Sprint Planning Meeting - Q4 2024"
+Template: Meeting Notes
+Context: "Sprint 23 planning, team capacity, upcoming features"
+Result: Structured meeting notes with agenda, decisions, action items
+```
+
+**Build Tutorial Content**:
+```
+Topic: "Setting up Development Environment"
+Template: Tutorial
+Context: "Python, Docker, VS Code setup for new developers"
+Source Documents: [setup guides, troubleshooting docs]
+Result: Step-by-step tutorial with code examples and validation steps
+```
+
 ## ⚙️ Configuration
 
 ### System Requirements by Model

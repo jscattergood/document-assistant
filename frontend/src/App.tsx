@@ -12,6 +12,7 @@ import HomePage from './pages/HomePage';
 import DocumentsPage from './pages/DocumentsPage';
 import ChatPage from './pages/ChatPage';
 import ConfluencePage from './pages/ConfluencePage';
+import ContentGenerationPage from './pages/ContentGenerationPage';
 import SettingsPage from './pages/SettingsPage';
 
 function App() {
@@ -26,6 +27,7 @@ function App() {
               <Route path="/documents" element={<DocumentsPage />} />
               <Route path="/chat" element={<ChatPage />} />
               <Route path="/confluence" element={<ConfluencePage />} />
+              <Route path="/content-generation" element={<ContentGenerationPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Routes>
           </Layout>

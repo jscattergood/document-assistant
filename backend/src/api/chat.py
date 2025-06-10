@@ -302,6 +302,194 @@ async def generate_confluence_draft(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating Confluence draft: {str(e)}")
 
+@router.post("/confluence-content-advanced")
+async def generate_advanced_confluence_content(
+    request: ChatRequest,
+    service: DocumentService = Depends(get_document_service)
+):
+    """Generate advanced Confluence content with enhanced AI prompting."""
+    try:
+        # Extract content type and requirements from the message
+        content_prompt = f"""
+        Create comprehensive Confluence content for: {request.message}
+        
+        Please analyze the request and determine the most appropriate content structure, then generate:
+        
+        1. **Content Analysis**: Identify the type of content needed (documentation, tutorial, meeting notes, etc.)
+        2. **Structure Planning**: Create an optimal section hierarchy
+        3. **Content Generation**: Produce well-formatted content using Confluence storage format
+        
+        Requirements:
+        - Use proper Confluence markup (headers, lists, tables, code blocks, info panels)
+        - Include relevant information from the knowledge base
+        - Create comprehensive, professional documentation
+        - Add appropriate cross-references and links
+        - Use info/tip/warning panels for important information
+        - Structure content logically with clear navigation
+        
+        Content Request: {request.message}
+        
+        Generate the content in Confluence storage format with proper HTML-like markup.
+        """
+        
+        # Add conversation history if provided
+        if request.conversation_history:
+            conversation_history = [
+                {"role": msg.role, "content": msg.content}
+                for msg in request.conversation_history
+            ]
+        else:
+            conversation_history = []
+        
+        # Chat with documents using enhanced prompt
+        response = await service.chat_with_documents(
+            message=content_prompt,
+            conversation_history=conversation_history
+        )
+        
+        return {
+            "success": True,
+            "message": "Advanced Confluence content generated successfully",
+            "content": response,
+            "content_type": "confluence_advanced",
+            "format": "storage",
+            "sources": []  # TODO: Extract source documents from response
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating advanced Confluence content: {str(e)}")
+
+@router.post("/confluence-template-content")
+async def generate_template_based_content(
+    request: dict,
+    service: DocumentService = Depends(get_document_service)
+):
+    """Generate Confluence content based on specific templates and requirements."""
+    try:
+        topic = request.get('topic', '')
+        template_type = request.get('template_type', 'general')
+        additional_requirements = request.get('requirements', '')
+        document_ids = request.get('document_ids', [])
+        
+        # Template-specific prompts
+        template_prompts = {
+            "api_documentation": f"""
+            Create comprehensive API documentation for: {topic}
+            
+            Structure:
+            1. API Overview and Introduction
+            2. Authentication and Security
+            3. Base URLs and Endpoints
+            4. Request/Response Formats
+            5. Endpoint Documentation (with examples)
+            6. Error Handling and Status Codes
+            7. Rate Limiting and Best Practices
+            8. SDK and Code Examples
+            9. Testing and Troubleshooting
+            
+            Use Confluence code blocks, tables, and info panels.
+            """,
+            
+            "user_guide": f"""
+            Create a comprehensive user guide for: {topic}
+            
+            Structure:
+            1. Getting Started Overview
+            2. Prerequisites and Setup
+            3. Basic Operations (step-by-step)
+            4. Advanced Features
+            5. Common Use Cases and Examples
+            6. Troubleshooting and FAQ
+            7. Tips and Best Practices
+            8. Additional Resources
+            
+            Use screenshots placeholders, step-by-step instructions, and tip panels.
+            """,
+            
+            "process_documentation": f"""
+            Create detailed process documentation for: {topic}
+            
+            Structure:
+            1. Process Overview and Purpose
+            2. Roles and Responsibilities
+            3. Prerequisites and Requirements
+            4. Detailed Process Steps
+            5. Decision Points and Workflows
+            6. Quality Checkpoints
+            7. Exception Handling
+            8. Related Processes and References
+            
+            Use flowcharts placeholders, tables, and warning panels for critical steps.
+            """,
+            
+            "project_retrospective": f"""
+            Create a project retrospective document for: {topic}
+            
+            Structure:
+            1. Project Summary and Context
+            2. Goals and Objectives Review
+            3. What Went Well (Successes)
+            4. What Could Be Improved (Challenges)
+            5. Key Learnings and Insights
+            6. Action Items for Future Projects
+            7. Metrics and Performance Analysis
+            8. Recommendations and Next Steps
+            
+            Use tables for action items, info panels for key insights.
+            """,
+            
+            "release_notes": f"""
+            Create comprehensive release notes for: {topic}
+            
+            Structure:
+            1. Release Overview and Highlights
+            2. New Features and Enhancements
+            3. Bug Fixes and Improvements
+            4. Breaking Changes and Migration Guide
+            5. Performance and Security Updates
+            6. Known Issues and Limitations
+            7. Installation and Upgrade Instructions
+            8. Support and Feedback Information
+            
+            Use tables for features, warning panels for breaking changes.
+            """
+        }
+        
+        base_prompt = template_prompts.get(template_type, f"""
+        Create well-structured documentation for: {topic}
+        
+        Generate comprehensive, professional content with:
+        - Clear headings and organization
+        - Relevant examples and use cases
+        - Best practices and recommendations
+        - Proper Confluence formatting
+        """)
+        
+        full_prompt = f"""
+        {base_prompt}
+        
+        Additional Requirements: {additional_requirements}
+        
+        Please use information from the knowledge base to create accurate, comprehensive content.
+        Format using Confluence storage format with proper markup.
+        """
+        
+        response = await service.query_documents(
+            query=full_prompt,
+            document_ids=document_ids
+        )
+        
+        return {
+            "success": True,
+            "message": f"Template-based content generated for {template_type}",
+            "content": response,
+            "template_type": template_type,
+            "topic": topic
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating template-based content: {str(e)}")
+
 @router.get("/history/{conversation_id}")
 async def get_conversation_history(conversation_id: str):
     """Get conversation history by ID."""

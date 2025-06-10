@@ -1673,8 +1673,24 @@ CONTENT:
             if not self.query_engine:
                 raise ValueError("Query engine not initialized")
             
+
             # Update LLM settings to ensure current max_tokens is used
             self.update_llm_settings()
+            
+            # CRITICAL FIX: Handle document_ids parameter properly
+            if document_ids is not None and len(document_ids) == 0:
+                # Empty array means "use no documents" - generate using LLM general knowledge
+                print("Empty document_ids list provided - generating content using LLM general knowledge")
+                response_text = self.llm.complete(query).text
+                return self._format_response_as_markdown(response_text)
+            elif document_ids is not None and len(document_ids) > 0:
+                # Specific document IDs provided
+                print(f"Querying specific documents: {document_ids}")
+                # TODO: Implement document-specific retrieval based on document_ids
+                # For now, fall through to regular logic but this needs to be implemented
+            else:
+                # document_ids is None - use all documents (default behavior)
+                print("No document_ids specified - querying all documents")
             
             # First, check if this is a document-specific query that should use direct document loading
             matching_documents = self._detect_document_specific_query(query)

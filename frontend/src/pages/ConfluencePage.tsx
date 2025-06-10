@@ -42,6 +42,10 @@ import {
   Schedule,
   ContentCopy,
   Clear,
+  AutoAwesome,
+  Create,
+  Preview,
+  Refresh,
 } from '@mui/icons-material';
 import { confluenceAPI } from '../services/api';
 import toast from 'react-hot-toast';
@@ -66,6 +70,14 @@ interface SyncPage {
   sync_enabled: boolean;
   created_at: string;
 }
+
+interface ContentTemplate {
+  name: string;
+  description: string;
+  sections: string[];
+}
+
+
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -118,6 +130,11 @@ const ConfluencePage: React.FC = () => {
   const [addUrlsDialog, setAddUrlsDialog] = useState(false);
   const [urlsToAdd, setUrlsToAdd] = useState('');
 
+  // Template Management state
+  const [templates, setTemplates] = useState<Record<string, ContentTemplate>>({});
+  const [templatePageUrls, setTemplatePageUrls] = useState<string>('');
+  const [loadingCustomTemplates, setLoadingCustomTemplates] = useState(false);
+
   useEffect(() => {
     if (connectionStatus.status === 'connected') {
       loadSyncPages();
@@ -128,6 +145,11 @@ const ConfluencePage: React.FC = () => {
     // Load saved configuration on component mount
     loadSavedConfig();
   }, []);
+
+  useEffect(() => {
+    // Load templates when component mounts or connection status changes
+    loadContentTemplates();
+  }, [connectionStatus.status, config.space_key]); // Re-run when connection or space changes
 
   const loadSavedConfig = async () => {
     try {
@@ -174,6 +196,99 @@ const ConfluencePage: React.FC = () => {
       setLoadingSyncPages(false);
     }
   };
+
+  const loadCustomTemplates = async () => {
+    if (!templatePageUrls.trim()) {
+      toast.error('Please enter at least one template page URL');
+      return;
+    }
+
+    const urls = templatePageUrls.split('\n').filter(url => url.trim()).map(url => url.trim());
+    if (urls.length === 0) {
+      toast.error('Please enter valid template page URLs');
+      return;
+    }
+
+    setLoadingCustomTemplates(true);
+    try {
+      await loadContentTemplates(urls);
+      toast.success(`Processed ${urls.length} template URL(s)`);
+    } catch (error) {
+      toast.error('Failed to load custom templates');
+    } finally {
+      setLoadingCustomTemplates(false);
+    }
+  };
+
+  const loadContentTemplates = async (customTemplateUrls?: string[]) => {
+    try {
+      console.log('Loading content templates...');
+      console.log('Connection status:', connectionStatus.status);
+      console.log('Custom template URLs:', customTemplateUrls);
+      
+      // First try to get templates from user-defined URLs if provided
+      if (connectionStatus.status === 'connected' && config.url && config.token && customTemplateUrls && customTemplateUrls.length > 0) {
+        console.log('Attempting to load custom template pages...');
+        
+        const credentials = {
+          url: config.url,
+          username: config.username,
+          api_token: config.token,
+          auth_type: config.auth_type,
+        };
+
+        try {
+          const confluenceResult = await confluenceAPI.getConfluenceTemplates(credentials, config.space_key, customTemplateUrls);
+          console.log('Custom templates result:', confluenceResult);
+          
+          if (confluenceResult.success && Object.keys(confluenceResult.templates).length > 0) {
+            setTemplates(confluenceResult.templates);
+            
+            // Save the custom template URLs to localStorage so ContentGenerationPage can access them
+            localStorage.setItem('custom_template_urls', JSON.stringify(customTemplateUrls));
+            
+            toast.success(`Created ${Object.keys(confluenceResult.templates).length} templates from your Confluence pages`);
+            return;
+          } else {
+            console.log('No custom templates could be created:', confluenceResult);
+            toast.error(`Could not create templates from the provided URLs: ${confluenceResult.message}`);
+          }
+        } catch (confluenceError) {
+          console.error('Error fetching custom templates:', confluenceError);
+          toast.error('Failed to fetch custom templates, using fallback');
+        }
+      } else if (connectionStatus.status === 'connected' && config.url && config.token) {
+        console.log('Skipping custom templates - none provided');
+      } else {
+        console.log('Skipping custom templates - not connected or missing credentials');
+      }
+      
+      // Fallback to static templates
+      console.log('Loading fallback templates...');
+      const result = await confluenceAPI.getContentTemplates();
+      console.log('Fallback templates result:', result);
+      
+      if (result.success) {
+        setTemplates(result.templates);
+        console.log('Loaded fallback templates:', Object.keys(result.templates));
+      }
+    } catch (error) {
+      console.error('Error loading templates:', error);
+      
+      // Final fallback to static templates on error
+      try {
+        const result = await confluenceAPI.getContentTemplates();
+        if (result.success) {
+          setTemplates(result.templates);
+        }
+      } catch (fallbackError) {
+        console.error('Error loading fallback templates:', fallbackError);
+        toast.error('Failed to load content templates');
+      }
+    }
+  };
+
+
 
   const handleInputChange = (field: keyof ConfluenceConfig) => (
     event: React.ChangeEvent<HTMLInputElement>
@@ -421,27 +536,26 @@ const ConfluencePage: React.FC = () => {
     return new Date(dateString).toLocaleString();
   };
 
-  return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
-      <Box sx={{ mb: 6 }}>
-        <Typography variant="h1" component="h1" sx={{ mb: 2 }}>
-          Confluence Integration
-        </Typography>
-        <Typography variant="h6" color="text.secondary">
-          Connect, sync, and work with your Confluence workspace
-        </Typography>
-      </Box>
 
-      <Paper sx={{ mb: 4 }}>
-        <Tabs
-          value={tabValue}
+
+  return (
+    <Container maxWidth="lg" sx={{ py: 4 }}>
+      <Typography variant="h3" component="h1" sx={{ mb: 4, fontWeight: 'bold' }}>
+        Confluence Integration
+      </Typography>
+
+      <Paper elevation={2}>
+        <Tabs 
+          value={tabValue} 
           onChange={(_, newValue) => setTabValue(newValue)}
           sx={{ borderBottom: 1, borderColor: 'divider' }}
         >
-          <Tab label="Connection" icon={<Settings />} />
-          <Tab label="Page Sync" icon={<Sync />} disabled={connectionStatus.status !== 'connected'} />
+                      <Tab icon={<Settings />} label="Configuration" />
+            <Tab icon={<Create />} label="Templates" disabled={connectionStatus.status !== 'connected'} />
+            <Tab icon={<Sync />} label="Sync Pages" disabled={connectionStatus.status !== 'connected'} />
         </Tabs>
 
+        {/* Configuration Tab */}
         <TabPanel value={tabValue} index={0}>
           <Grid container spacing={4}>
             {/* Configuration */}
@@ -637,7 +751,192 @@ const ConfluencePage: React.FC = () => {
           </Grid>
         </TabPanel>
 
+        {/* Template Management Tab */}
         <TabPanel value={tabValue} index={1}>
+          <Box sx={{ mb: 4 }}>
+            <Typography variant="h4" component="h2" sx={{ mb: 2 }}>
+              Template Management
+            </Typography>
+            <Typography color="text.secondary" sx={{ mb: 4 }}>
+              Manage content templates for AI-powered content generation. Templates are used by the Content Generation tool to create structured content.
+            </Typography>
+          </Box>
+
+          <Grid container spacing={4}>
+            {/* Custom Template URLs */}
+            <Grid size={{ xs: 12, md: 6 }}>
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                    <Add sx={{ mr: 1 }} />
+                    Add Custom Templates
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                    Import templates from existing Confluence pages. The system will analyze their structure and create reusable templates.
+                  </Typography>
+
+                  
+                  <TextField
+                    fullWidth
+                    multiline
+                    rows={4}
+                    label="Template Page URLs"
+                    placeholder="https://api.wiki.autodesk.com/display/PSET/RFC-Template&#10;https://api.wiki.autodesk.com/display/PSET/Meeting-Notes-Template"
+                    value={templatePageUrls}
+                    onChange={(e) => setTemplatePageUrls(e.target.value)}
+                    helperText="One URL per line. These pages will be analyzed to create new templates."
+                    sx={{ mb: 3 }}
+                  />
+                  
+                  <Button
+                    fullWidth
+                    variant="contained"
+                    onClick={loadCustomTemplates}
+                    disabled={loadingCustomTemplates || !templatePageUrls.trim()}
+                    startIcon={loadingCustomTemplates ? <CircularProgress size={20} /> : <Refresh />}
+                  >
+                    {loadingCustomTemplates ? 'Loading Templates...' : 'Import Templates'}
+                  </Button>
+
+                </CardContent>
+              </Card>
+            </Grid>
+
+            {/* Available Templates */}
+            <Grid size={{ xs: 12, md: 6 }}>
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                    <Create sx={{ mr: 1 }} />
+                    Available Templates
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                    Templates that can be used for content generation. Go to Content Generation to use these templates.
+                  </Typography>
+
+                  {Object.keys(templates).length === 0 ? (
+                    <Alert severity="info">
+                      No templates loaded yet. Import custom templates or check your connection.
+                    </Alert>
+                  ) : (
+                    <List>
+                      {Object.entries(templates).map(([key, template]) => (
+                        <ListItem key={key} sx={{ px: 0 }}>
+                          <ListItemText
+                            primary={template.name}
+                            secondary={
+                              <Box>
+                                <Typography variant="body2" color="text.secondary">
+                                  {template.description}
+                                </Typography>
+                                <Box sx={{ mt: 1 }}>
+                                  {template.sections.map((section, index) => (
+                                    <Chip
+                                      key={index}
+                                      label={section}
+                                      size="small"
+                                      variant="outlined"
+                                      sx={{ mr: 0.5, mb: 0.5 }}
+                                    />
+                                  ))}
+                                </Box>
+                              </Box>
+                            }
+                          />
+                        </ListItem>
+                      ))}
+                    </List>
+                  )}
+
+                </CardContent>
+              </Card>
+            </Grid>
+
+            {/* Template Debug & Management */}
+            <Grid size={{ xs: 12 }}>
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    Template Management & Debug
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                    Tools for managing and debugging templates.
+                  </Typography>
+                  
+                  <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                    <Button
+                      variant="outlined"
+                      onClick={() => loadContentTemplates()}
+                      startIcon={<Refresh />}
+                    >
+                      Reload Templates
+                    </Button>
+                    
+                    <Button
+                      variant="outlined"
+                      onClick={() => {
+                        console.log('Current templates:', templates);
+                        console.log('Connection status:', connectionStatus);
+                        console.log('Config:', config);
+                        toast.success('Check console for template details');
+                      }}
+                      startIcon={<Preview />}
+                    >
+                      Debug Templates
+                    </Button>
+                    
+                    <Button
+                      variant="outlined"
+                      onClick={async () => {
+                        if (connectionStatus.status === 'connected' && config.url && config.token) {
+                          const credentials = {
+                            url: config.url,
+                            username: config.username,
+                            api_token: config.token,
+                            auth_type: config.auth_type,
+                          };
+                          
+                          try {
+                            const response = await fetch('/api/confluence/templates/test', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ credentials, space_key: config.space_key })
+                            });
+                            const result = await response.json();
+                            console.log('Test endpoint result:', result);
+                            toast.success('Check console for API test results');
+                          } catch (error) {
+                            console.error('Test endpoint error:', error);
+                            toast.error('Template API test failed');
+                          }
+                        } else {
+                          toast.error('Please connect to Confluence first');
+                        }
+                      }}
+                      startIcon={<Settings />}
+                    >
+                      Test Template APIs
+                    </Button>
+                    
+                    <Button
+                      variant="contained"
+                      onClick={() => window.open('/content-generation', '_blank')}
+                      startIcon={<AutoAwesome />}
+                      color="primary"
+                    >
+                      Go to Content Generation
+                    </Button>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+
+
+        </TabPanel>
+
+        {/* Sync Pages Tab */}
+        <TabPanel value={tabValue} index={2}>
           <Box sx={{ mb: 4 }}>
             <Typography variant="h4" component="h2" sx={{ mb: 2 }}>
               Page Synchronization
@@ -779,6 +1078,8 @@ const ConfluencePage: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+
     </Container>
   );
 };

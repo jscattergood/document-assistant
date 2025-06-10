@@ -331,6 +331,68 @@ export const confluenceAPI = {
     });
     return response.data;
   },
+
+  // Get available content templates
+  getContentTemplates: async () => {
+    const response = await api.get('/confluence/templates');
+    return response.data;
+  },
+
+  // Get templates from Confluence (dynamic)
+  getConfluenceTemplates: async (credentials: ConfluenceCredentials, spaceKey?: string, templatePageUrls?: string[]) => {
+    const response = await api.post('/confluence/templates/from-confluence', {
+      credentials,
+      space_key: spaceKey,
+      template_page_urls: templatePageUrls
+    });
+    return response.data;
+  },
+
+  // Generate AI-powered Confluence content
+  generateContent: async (request: {
+    credentials: ConfluenceCredentials;
+    content_type: string;
+    topic: string;
+    template_options?: any;
+    document_ids?: string[] | null;
+    space_key: string;
+    parent_page_id?: string;
+    publish_directly?: boolean;
+    additional_context?: string;
+  }) => {
+    const response = await api.post('/confluence/generate-content', request);
+    return response.data;
+  },
+
+  // Enhance existing content with AI
+  enhanceContent: async (content: string, enhancement_type: string = 'general') => {
+    const response = await api.post('/confluence/enhance-content', {
+      content,
+      enhancement_type
+    });
+    return response.data;
+  },
+
+  // Generate advanced Confluence content using chat endpoint
+  generateAdvancedContent: async (message: string, document_ids?: string[], conversation_history?: any[]) => {
+    const response = await api.post('/chat/confluence-content-advanced', {
+      message,
+      document_ids,
+      conversation_history
+    });
+    return response.data;
+  },
+
+  // Generate template-based content
+  generateTemplateContent: async (topic: string, template_type: string, requirements?: string, document_ids?: string[]) => {
+    const response = await api.post('/chat/confluence-template-content', {
+      topic,
+      template_type,
+      requirements,
+      document_ids
+    });
+    return response.data;
+  },
 };
 
 // Models API methods

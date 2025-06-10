@@ -17,6 +17,7 @@ import {
   Description as DocumentTextIcon,
   Chat as ChatBubbleLeftRightIcon,
   Cloud as CloudIcon,
+  AutoAwesome as AutoAwesomeIcon,
   Settings as CogIcon,
 } from '@mui/icons-material';
 import logoSvg from '../assets/logo.svg';
@@ -29,6 +30,7 @@ const navigation = [
   { name: 'Home', href: '/', icon: HomeIcon },
   { name: 'Documents', href: '/documents', icon: DocumentTextIcon },
   { name: 'Chat', href: '/chat', icon: ChatBubbleLeftRightIcon },
+  { name: 'Content Generation', href: '/content-generation', icon: AutoAwesomeIcon },
   { name: 'Confluence', href: '/confluence', icon: CloudIcon },
   { name: 'Settings', href: '/settings', icon: CogIcon },
 ];
