@@ -1,6 +1,37 @@
 import { createTheme } from '@mui/material/styles';
+import type { CSSObject, Theme, Mixins } from '@mui/material/styles';
 
-export const theme = createTheme({
+const drawerWidth = 240;
+
+const openedMixin = (theme: Theme): CSSObject => ({
+  width: drawerWidth,
+  transition: theme.transitions.create('width', {
+    easing: theme.transitions.easing.sharp,
+    duration: theme.transitions.duration.enteringScreen,
+  }),
+  overflowX: 'hidden',
+});
+
+const closedMixin = (theme: Theme): CSSObject => ({
+  transition: theme.transitions.create('width', {
+    easing: theme.transitions.easing.sharp,
+    duration: theme.transitions.duration.leavingScreen,
+  }),
+  overflowX: 'hidden',
+  width: `calc(${theme.spacing(7)} + 1px)`,
+  [theme.breakpoints.up('sm')]: {
+    width: `calc(${theme.spacing(8)} + 1px)`,
+  },
+});
+
+declare module '@mui/material/styles' {
+  interface Mixins {
+    openedMixin: typeof openedMixin;
+    closedMixin: typeof closedMixin;
+  }
+}
+
+const theme = createTheme({
   palette: {
     primary: {
       main: '#1976d2',
@@ -99,50 +130,76 @@ export const theme = createTheme({
           '&:hover': {
             boxShadow: '0 2px 8px rgba(25, 118, 210, 0.3)',
           },
+          '& .MuiButton-endIcon, & .MuiButton-startIcon': {
+            color: 'inherit',
+          },
         },
         contained: {
-          background: 'linear-gradient(135deg, #1976d2 0%, #1565c0 100%)',
+          background: '#1976d2',
           color: '#ffffff',
           '&:hover': {
-            background: 'linear-gradient(135deg, #1565c0 0%, #0d47a1 100%)',
-            color: '#ffffff',
+            background: '#1565c0',
           },
-          '&:disabled': {
-            background: 'rgba(0, 0, 0, 0.12)',
+          '&.Mui-disabled': {
+            backgroundColor: 'rgba(0, 0, 0, 0.12)',
             color: 'rgba(0, 0, 0, 0.26)',
           },
         },
-        containedSecondary: {
-          background: 'linear-gradient(135deg, #f57c00 0%, #e65100 100%)',
+        containedPrimary: {
+          background: '#1976d2',
           color: '#ffffff',
           '&:hover': {
-            background: 'linear-gradient(135deg, #e65100 0%, #bf360c 100%)',
-            color: '#ffffff',
+            background: '#1565c0',
+          },
+        },
+        containedSecondary: {
+          background: '#f57c00',
+          color: '#ffffff',
+          '&:hover': {
+            background: '#e65100',
           },
         },
         containedSuccess: {
-          background: 'linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%)',
+          background: '#2e7d32',
           color: '#ffffff',
           '&:hover': {
-            background: 'linear-gradient(135deg, #1b5e20 0%, #0d5016 100%)',
-            color: '#ffffff',
-          },
-        },
-        containedWarning: {
-          background: 'linear-gradient(135deg, #ed6c02 0%, #e65100 100%)',
-          color: '#ffffff',
-          '&:hover': {
-            background: 'linear-gradient(135deg, #e65100 0%, #d84315 100%)',
-            color: '#ffffff',
+            background: '#1b5e20',
           },
         },
         containedError: {
-          background: 'linear-gradient(135deg, #d32f2f 0%, #b71c1c 100%)',
+          background: '#d32f2f',
           color: '#ffffff',
           '&:hover': {
-            background: 'linear-gradient(135deg, #b71c1c 0%, #8b0000 100%)',
-            color: '#ffffff',
+            background: '#b71c1c',
           },
+        },
+        containedWarning: {
+          background: '#ed6c02',
+          color: '#ffffff',
+          '&:hover': {
+            background: '#e65100',
+          },
+        },
+        outlined: {
+          color: 'inherit',
+          '&:hover': {
+            backgroundColor: 'rgba(25, 118, 210, 0.04)',
+          },
+        },
+        outlinedPrimary: {
+          color: '#1976d2',
+        },
+        outlinedSecondary: {
+          color: '#f57c00',
+        },
+        outlinedError: {
+          color: '#d32f2f',
+        },
+        outlinedSuccess: {
+          color: '#2e7d32',
+        },
+        outlinedWarning: {
+          color: '#ed6c02',
         },
       },
     },
@@ -170,4 +227,10 @@ export const theme = createTheme({
       },
     },
   },
-}); 
+  mixins: {
+    openedMixin,
+    closedMixin,
+  } as Mixins,
+});
+
+export default theme; 
