@@ -39,7 +39,9 @@ import {
   Tooltip,
   Tabs,
   Tab,
+  Link as MuiLink,
 } from '@mui/material';
+import { Link as RouterLink } from 'react-router-dom';
 import {
   Settings,
   Save,
@@ -64,10 +66,14 @@ import {
   Stop,
   RestartAlt,
   PowerSettingsNew,
+  Cloud,
 } from '@mui/icons-material';
 import { useDropzone } from 'react-dropzone';
 import { modelsAPI } from '../services/api';
 import toast from 'react-hot-toast';
+import { ConfluenceSettings } from '../components/settings/ConfluenceSettings';
+import { TemplateManagement } from '../components/settings/TemplateManagement';
+import { SyncManagement } from '../components/settings/SyncManagement';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -144,6 +150,20 @@ const SettingsPage: React.FC = () => {
 
   // Loading states
   const [loadingEmbedding, setLoadingEmbedding] = useState(false);
+
+  const [confluenceTab, setConfluenceTab] = useState(0);
+  const [isConfigured, setIsConfigured] = useState(() => {
+    try {
+      const savedConfig = localStorage.getItem('confluence_config');
+      if (savedConfig) {
+        const parsedConfig = JSON.parse(savedConfig);
+        return !!(parsedConfig.url && parsedConfig.token);
+      }
+      return false;
+    } catch (error) {
+      return false;
+    }
+  });
 
   useEffect(() => {
     loadModelInfo();
@@ -666,6 +686,10 @@ const SettingsPage: React.FC = () => {
     setCurrentTab(newValue);
   };
 
+  const handleConfluenceTabChange = (_: React.SyntheticEvent, newValue: number) => {
+    setConfluenceTab(newValue);
+  };
+
   return (
     <>
       <Container maxWidth="xl" sx={{ py: 4 }}>
@@ -690,6 +714,7 @@ const SettingsPage: React.FC = () => {
             <Tab icon={<Psychology />} label="Language Models" />
             <Tab icon={<Storage />} label="Storage & System" />
             <Tab icon={<Settings />} label="Application" />
+            <Tab icon={<Cloud />} label="Integrations" />
           </Tabs>
         </Paper>
 
@@ -1851,6 +1876,61 @@ const SettingsPage: React.FC = () => {
                     </Typography>
                   </Alert>
                 </Box>
+              </Paper>
+            </Grid>
+          </Grid>
+        </TabPanel>
+
+        <TabPanel value={currentTab} index={4}>
+          {/* Integrations Settings */}
+          <Grid container spacing={4}>
+            <Grid size={{ xs: 12 }}>
+              {/* Confluence Section */}
+              <Paper elevation={2} sx={{ p: 4, mb: 4 }}>
+                <Box sx={{ mb: 4 }}>
+                  <Typography variant="h4" component="h2" sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                    <Cloud sx={{ mr: 2 }} /> Confluence Integration
+                  </Typography>
+                  <Typography color="text.secondary">
+                    Connect and manage your Confluence workspace integration
+                  </Typography>
+                </Box>
+
+                {/* Tabs for different Confluence sections */}
+                <Tabs 
+                  value={confluenceTab} 
+                  onChange={handleConfluenceTabChange}
+                  sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}
+                >
+                  <Tab label="Configuration" />
+                  <Tab label="Templates" disabled={!isConfigured} />
+                  <Tab label="Sync Pages" disabled={!isConfigured} />
+                </Tabs>
+
+                {/* Configuration Tab */}
+                <TabPanel value={confluenceTab} index={0}>
+                  <ConfluenceSettings onConfigured={() => setIsConfigured(true)} />
+                </TabPanel>
+
+                {/* Templates Tab */}
+                <TabPanel value={confluenceTab} index={1}>
+                  <TemplateManagement />
+                </TabPanel>
+
+                {/* Sync Pages Tab */}
+                <TabPanel value={confluenceTab} index={2}>
+                  <SyncManagement />
+                </TabPanel>
+              </Paper>
+
+              {/* Other Integrations */}
+              <Paper elevation={2} sx={{ p: 4 }}>
+                <Typography variant="h4" component="h2" sx={{ mb: 3 }}>
+                  Other Integrations
+                </Typography>
+                <Alert severity="info">
+                  More integrations coming soon...
+                </Alert>
               </Paper>
             </Grid>
           </Grid>
