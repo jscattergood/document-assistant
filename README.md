@@ -5,6 +5,7 @@ An AI-powered application for analyzing documents and web pages, helping create 
 ## ✨ Features
 
 - **📄 Document Analysis**: Upload and analyze various document formats (PDF, DOCX, TXT, Markdown, HTML)
+- **🌐 Web Page Import**: Smart content extraction from any accessible webpage with multiple extraction modes
 - **🤖 Dual AI Models**: 
   - **BERT Embeddings** - 6 advanced models for document understanding and semantic search
   - **GPT4All Language Models** - Local LLMs for chat and content generation (Llama 3, Mistral, etc.)
@@ -100,8 +101,32 @@ docker-compose up --build
 
 ### Document Management
 1. **Upload**: Drag & drop files on the Documents page
-2. **Analyze**: View rich metadata including word counts, file properties, format-specific data
-3. **Search**: Semantic search across all your documents
+2. **Web Import**: Import content from any accessible webpage
+3. **Analyze**: View rich metadata including word counts, file properties, format-specific data
+4. **Search**: Semantic search across all your documents
+
+### Web Page Import
+1. **URL Preview**: Test webpage accessibility before importing
+   - Check if the URL is accessible and returns valid content
+   - Preview basic information (title, content type, size)
+   - Get user-friendly error messages for common issues (404, 403, rate limiting)
+
+2. **Smart Content Extraction**: Multiple extraction modes for different content types
+   - **Auto Mode**: Automatically detects the best extraction method
+   - **Readability Mode**: Uses Mozilla's readability algorithm for article-like content
+   - **Full Mode**: Extracts all visible text content from the page
+
+3. **Content Processing**: 
+   - Intelligent content cleaning and formatting
+   - Metadata extraction (title, domain, description)
+   - Automatic conversion to Markdown format for optimal AI processing
+   - Integration with existing document search and chat features
+
+4. **Error Handling**: Comprehensive error handling with specific messages
+   - **404 Errors**: "Page not found - please check the URL"
+   - **403 Errors**: "Access forbidden - website blocks automated access"
+   - **429 Errors**: "Rate limited - too many requests to this website"
+   - **Connection Issues**: Clear guidance for network problems
 
 ### AI Model Configuration
 1. **Settings → Embedding Models**: Choose BERT model for document understanding
@@ -286,6 +311,20 @@ Source Documents: [setup guides, troubleshooting docs]
 Result: Step-by-step tutorial with code examples and validation steps
 ```
 
+**Import Web Content**:
+```
+URL: "https://docs.python.org/3/tutorial/introduction.html"
+Extraction Mode: Auto (detects article content)
+Result: Clean Python tutorial content imported as searchable document
+```
+
+**Import Technical Documentation**:
+```
+URL: "https://fastapi.tiangolo.com/tutorial/first-steps/"
+Extraction Mode: Readability (optimized for documentation)
+Result: FastAPI tutorial with proper formatting and code examples
+```
+
 ## ⚙️ Configuration
 
 ### System Requirements by Model
@@ -353,6 +392,9 @@ The `data/app_settings.json` file contains application configuration:
 - **FastAPI**: Modern, fast web framework for building APIs
 - **ChromaDB**: Vector database for document embeddings
 - **llama-index-readers-confluence**: Confluence integration
+- **BeautifulSoup4**: HTML parsing and content extraction
+- **Readability**: Mozilla's readability algorithm for article extraction
+- **Requests**: HTTP client for web page fetching
 
 ### Frontend
 - **React 18**: Modern web application framework
@@ -488,6 +530,10 @@ MIT License - see LICENSE file for details
 - `POST /api/chat/generate` - Generate new content
 - `POST /api/confluence/import` - Import Confluence pages
 
+### Web Import Endpoints
+- `POST /api/web-import/preview-url` - Preview webpage accessibility and basic info
+- `POST /api/web-import/import` - Import content from webpage with smart extraction
+
 ### Settings & Configuration API
 - `GET /api/models/settings` - Get current application settings
 - `POST /api/models/settings` - Update application settings (tokens, context, etc.)
@@ -592,6 +638,14 @@ mkdir -p data/{documents,confluence,models,chroma_db}
 - **Models not loading**: Download with `ollama pull model-name`
 - **API not responding**: Restart via Settings or `ollama serve`
 - **Auto-start failed**: Check logs and manually start Ollama first
+
+**Web Import Issues**
+- **404 Errors**: Check URL spelling and ensure the page exists
+- **403 Forbidden**: Website blocks automated access - try a different URL
+- **429 Rate Limited**: Too many requests - wait and try again later
+- **Connection Timeout**: Check internet connection and URL accessibility
+- **Content Extraction**: Try different extraction modes (Auto/Readability/Full)
+- **Empty Content**: Some pages may not have extractable text content
 
 ### Device Support
 - **NVIDIA GPU**: CUDA support automatically detected
