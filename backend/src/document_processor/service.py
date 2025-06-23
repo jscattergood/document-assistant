@@ -41,6 +41,7 @@ import numpy as np
 import requests
 
 from ..models.document import Document, DocumentType, DocumentStatus, ConfluencePage
+from ..models.template import Template
 
 class BERTEmbedding(BaseEmbedding):
     """Advanced BERT embedding model wrapper with multiple model support."""
@@ -457,6 +458,7 @@ class DocumentService:
         self.query_engine = None
         self.chat_engine = None
         self.documents: Dict[str, Document] = {}
+        self.templates: Dict[str, Template] = {}
         self.chroma_client = None
         self.vector_store = None
         self.llm = None
@@ -467,9 +469,11 @@ class DocumentService:
         self.documents_dir = self.data_dir / "documents"
         self.models_dir = self.data_dir / "models"
         self.chroma_dir = self.data_dir / "chroma_db"
+        self.templates_dir = self.data_dir / "templates"
+        self.templates_metadata_file = self.templates_dir / "metadata.json"
         
         # Ensure directories exist
-        for directory in [self.data_dir, self.documents_dir, self.models_dir, self.chroma_dir]:
+        for directory in [self.data_dir, self.documents_dir, self.models_dir, self.chroma_dir, self.templates_dir]:
             directory.mkdir(parents=True, exist_ok=True)
 
     def _load_app_settings(self) -> Dict[str, Any]:
@@ -546,6 +550,9 @@ class DocumentService:
             
             # Load existing documents from the file system
             await self._load_existing_documents()
+            
+            # Load existing templates from the file system
+            await self._load_existing_templates()
             
             print("Document service initialized successfully")
             
@@ -2359,3 +2366,333 @@ Instructions:
 """
         
         return prompt
+
+    # Template Management Methods
+    
+    async def _load_existing_templates(self):
+        """Load existing templates from the templates directory on startup."""
+        try:
+            loaded_count = 0
+            
+            # Load templates metadata if it exists
+            await self._load_templates_metadata()
+            
+            # Scan the templates directory for template files
+            if self.templates_dir.exists():
+                for file_path in self.templates_dir.iterdir():
+                    if file_path.is_file() and file_path.suffix == '.md' and not file_path.name.startswith('.'):
+                        try:
+                            await self._load_template_from_file(file_path)
+                            loaded_count += 1
+                        except Exception as e:
+                            print(f"Error loading template {file_path.name}: {e}")
+            
+            print(f"Loaded {loaded_count} existing templates from file system")
+            
+        except Exception as e:
+            print(f"Error loading existing templates: {e}")
+    
+    async def _load_template_from_file(self, file_path: Path):
+        """Load a single template from a file."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Check if it's a template file with frontmatter
+            if content.startswith('---\n'):
+                parts = content.split('---\n', 2)
+                if len(parts) >= 3:
+                    frontmatter = parts[1]
+                    template_content = parts[2]
+                    
+                    # Parse frontmatter
+                    template_data = {}
+                    for line in frontmatter.strip().split('\n'):
+                        if ':' in line:
+                            key, value = line.split(':', 1)
+                            template_data[key.strip()] = value.strip()
+                    
+                    # Create template object
+                    template = Template(
+                        id=template_data.get('id', file_path.stem),
+                        name=template_data.get('name', file_path.stem),
+                        description=template_data.get('description', ''),
+                        source_url=template_data.get('source_url'),
+                        content=template_content.strip(),
+                        sections=json.loads(template_data.get('sections', '[]')),
+                        template_type=template_data.get('template_type', 'custom'),
+                        space_key=template_data.get('space_key'),
+                        page_id=template_data.get('page_id'),
+                        created_at=datetime.fromisoformat(template_data.get('created_at', datetime.now().isoformat())),
+                        updated_at=datetime.fromisoformat(template_data.get('updated_at', datetime.now().isoformat())),
+                        last_synced=datetime.fromisoformat(template_data['last_synced']) if template_data.get('last_synced') else None,
+                        sync_enabled=template_data.get('sync_enabled', 'true').lower() == 'true'
+                    )
+                    
+                    self.templates[template.id] = template
+                    
+        except Exception as e:
+            print(f"Error loading template from {file_path}: {e}")
+    
+    async def _load_templates_metadata(self):
+        """Load templates metadata from JSON file."""
+        try:
+            if self.templates_metadata_file.exists():
+                with open(self.templates_metadata_file, 'r') as f:
+                    metadata = json.load(f)
+                    # Additional metadata could be stored here if needed
+        except Exception as e:
+            print(f"Error loading templates metadata: {e}")
+    
+    async def _save_templates_metadata(self):
+        """Save templates metadata to JSON file."""
+        try:
+            metadata = {
+                "last_updated": datetime.now().isoformat(),
+                "template_count": len(self.templates),
+                "templates": {
+                    template_id: {
+                        "name": template.name,
+                        "template_type": template.template_type,
+                        "source_url": template.source_url,
+                        "created_at": template.created_at.isoformat(),
+                        "updated_at": template.updated_at.isoformat()
+                    }
+                    for template_id, template in self.templates.items()
+                }
+            }
+            
+            with open(self.templates_metadata_file, 'w') as f:
+                json.dump(metadata, f, indent=2)
+                
+        except Exception as e:
+            print(f"Error saving templates metadata: {e}")
+    
+    async def save_template(self, template: Template) -> str:
+        """Save a template to the file system and in-memory storage."""
+        try:
+            # Generate unique ID if not provided
+            if not template.id:
+                template.id = str(uuid.uuid4())
+            
+            # Update timestamps
+            now = datetime.now()
+            if template.id not in self.templates:
+                template.created_at = now
+            template.updated_at = now
+            
+            # Save to file with frontmatter
+            file_path = self.templates_dir / f"{template.id}.md"
+            
+            frontmatter = f"""---
+id: {template.id}
+name: {template.name}
+description: {template.description}
+template_type: {template.template_type}
+sections: {json.dumps(template.sections)}
+created_at: {template.created_at.isoformat()}
+updated_at: {template.updated_at.isoformat()}"""
+            
+            if template.source_url:
+                frontmatter += f"\nsource_url: {template.source_url}"
+            if template.space_key:
+                frontmatter += f"\nspace_key: {template.space_key}"
+            if template.page_id:
+                frontmatter += f"\npage_id: {template.page_id}"
+            if template.last_synced:
+                frontmatter += f"\nlast_synced: {template.last_synced.isoformat()}"
+            
+            frontmatter += f"\nsync_enabled: {str(template.sync_enabled).lower()}"
+            frontmatter += "\n---\n\n"
+            
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(frontmatter + template.content)
+            
+            # Save to in-memory storage
+            self.templates[template.id] = template
+            
+            # Update metadata file
+            await self._save_templates_metadata()
+            
+            print(f"Template saved: {template.name} (ID: {template.id})")
+            return template.id
+            
+        except Exception as e:
+            print(f"Error saving template: {e}")
+            raise
+    
+    async def get_template(self, template_id: str) -> Optional[Template]:
+        """Get a template by ID."""
+        return self.templates.get(template_id)
+    
+    async def list_templates(self) -> List[Template]:
+        """Get all templates."""
+        return list(self.templates.values())
+    
+    async def delete_template(self, template_id: str) -> bool:
+        """Delete a template by ID."""
+        try:
+            if template_id not in self.templates:
+                return False
+            
+            # Delete the file
+            file_path = self.templates_dir / f"{template_id}.md"
+            if file_path.exists():
+                file_path.unlink()
+            
+            # Remove from in-memory storage
+            del self.templates[template_id]
+            
+            # Update metadata file
+            await self._save_templates_metadata()
+            
+            print(f"Template deleted: {template_id}")
+            return True
+            
+        except Exception as e:
+            print(f"Error deleting template {template_id}: {e}")
+            return False
+    
+    async def sync_template_from_confluence(self, template_id: str, credentials) -> Optional[Template]:
+        """Sync a template with its Confluence source."""
+        try:
+            template = self.templates.get(template_id)
+            if not template or not template.source_url:
+                return None
+            
+            # Import confluence parsing functions
+            from ..api.confluence import (
+                parse_confluence_url, fetch_confluence_page_info
+            )
+            
+            # Create auth headers (handle both dict and object credentials)
+            if hasattr(credentials, 'auth_type'):
+                # It's a ConfluenceCredentials object
+                if credentials.auth_type == "pat":
+                    auth_headers = {
+                        "Authorization": f"Bearer {credentials.api_token}",
+                        "Content-Type": "application/json"
+                    }
+                else:  # basic auth
+                    import base64
+                    auth_string = f"{credentials.username}:{credentials.api_token}"
+                    encoded_auth = base64.b64encode(auth_string.encode()).decode()
+                    auth_headers = {
+                        "Authorization": f"Basic {encoded_auth}",
+                        "Content-Type": "application/json"
+                    }
+            else:
+                # It's a dict, convert to auth headers
+                if credentials.get('auth_type') == "pat":
+                    auth_headers = {
+                        "Authorization": f"Bearer {credentials['api_token']}",
+                        "Content-Type": "application/json"
+                    }
+                else:  # basic auth
+                    import base64
+                    auth_string = f"{credentials['username']}:{credentials['api_token']}"
+                    encoded_auth = base64.b64encode(auth_string.encode()).decode()
+                    auth_headers = {
+                        "Authorization": f"Basic {encoded_auth}",
+                        "Content-Type": "application/json"
+                    }
+            
+            # Parse the Confluence URL
+            url_info = parse_confluence_url(template.source_url)
+            
+            # Fetch fresh content from Confluence
+            page_info = await fetch_confluence_page_info(url_info, auth_headers)
+            
+            # Convert HTML to markdown using the same logic as template creation
+            content = self._convert_html_to_markdown(page_info['content'])
+            
+            # Update template
+            template.content = content
+            template.name = page_info['title']
+            template.last_synced = datetime.now()
+            template.updated_at = datetime.now()
+            
+            # Extract sections from the updated content
+            template.sections = self._extract_sections_from_content(content)
+            
+            # Save the updated template
+            await self.save_template(template)
+            
+            print(f"Template synced: {template.name}")
+            return template
+            
+        except Exception as e:
+            print(f"Error syncing template {template_id}: {e}")
+            return None
+    
+    def _convert_html_to_markdown(self, html_content: str) -> str:
+        """Convert HTML content to basic markdown format."""
+        if not html_content:
+            return ""
+        
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # Convert HTML to basic markdown
+        content = html_content
+        
+        # Convert headers
+        content = content.replace('<h1>', '# ').replace('</h1>', '\n\n')
+        content = content.replace('<h2>', '## ').replace('</h2>', '\n\n')
+        content = content.replace('<h3>', '### ').replace('</h3>', '\n\n')
+        content = content.replace('<h4>', '#### ').replace('</h4>', '\n\n')
+        content = content.replace('<h5>', '##### ').replace('</h5>', '\n\n')
+        content = content.replace('<h6>', '###### ').replace('</h6>', '\n\n')
+        
+        # Convert paragraphs
+        content = content.replace('<p>', '').replace('</p>', '\n\n')
+        
+        # Convert bold and italic
+        content = content.replace('<strong>', '**').replace('</strong>', '**')
+        content = content.replace('<b>', '**').replace('</b>', '**')
+        content = content.replace('<em>', '*').replace('</em>', '*')
+        content = content.replace('<i>', '*').replace('</i>', '*')
+        
+        # Convert lists
+        content = content.replace('<ul>', '').replace('</ul>', '\n')
+        content = content.replace('<ol>', '').replace('</ol>', '\n')
+        content = content.replace('<li>', '- ').replace('</li>', '\n')
+        
+        # Convert line breaks
+        content = content.replace('<br>', '\n').replace('<br/>', '\n').replace('<br />', '\n')
+        
+        # Remove remaining HTML tags and get clean text
+        soup = BeautifulSoup(content, 'html.parser')
+        clean_content = soup.get_text()
+        
+        # Clean up excessive newlines
+        lines = clean_content.split('\n')
+        cleaned_lines = []
+        prev_empty = False
+        
+        for line in lines:
+            line = line.strip()
+            if line == '':
+                if not prev_empty:
+                    cleaned_lines.append('')
+                prev_empty = True
+            else:
+                cleaned_lines.append(line)
+                prev_empty = False
+        
+        return '\n'.join(cleaned_lines).strip()
+
+    def _extract_sections_from_content(self, content: str) -> List[str]:
+        """Extract section headers from markdown content."""
+        sections = []
+        lines = content.split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            if line.startswith('#'):
+                # Extract header text without the # symbols
+                header = line.lstrip('#').strip()
+                if header and header not in sections:
+                    sections.append(header)
+        
+        return sections

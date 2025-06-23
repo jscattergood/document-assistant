@@ -332,21 +332,8 @@ export const confluenceAPI = {
     return response.data;
   },
 
-  // Get available content templates
-  getContentTemplates: async () => {
-    const response = await api.get('/confluence/templates');
-    return response.data;
-  },
-
-  // Get templates from Confluence (dynamic)
-  getConfluenceTemplates: async (credentials: ConfluenceCredentials, spaceKey?: string, templatePageUrls?: string[]) => {
-    const response = await api.post('/confluence/templates/from-confluence', {
-      credentials,
-      space_key: spaceKey,
-      template_page_urls: templatePageUrls
-    });
-    return response.data;
-  },
+  // Note: Template management has been moved to templateAPI
+  // getContentTemplates and getConfluenceTemplates are now deprecated
 
   // Generate AI-powered Confluence content
   generateContent: async (request: {
@@ -673,6 +660,128 @@ export const modelsAPI = {
     start_method?: string;
   }> {
     const response = await api.post('/models/ollama/restart');
+    return response.data;
+  },
+};
+
+// Template types
+export interface Template {
+  id: string;
+  name: string;
+  description: string;
+  source_url?: string;
+  content: string;
+  sections: string[];
+  template_type: string;
+  space_key?: string;
+  page_id?: string;
+  created_at: string;
+  updated_at: string;
+  last_synced?: string;
+  sync_enabled: boolean;
+}
+
+export interface TemplateResponse {
+  success: boolean;
+  message: string;
+  template?: Template;
+}
+
+export interface TemplateListResponse {
+  success: boolean;
+  message: string;
+  templates: Template[];
+  count: number;
+}
+
+export interface BuiltinTemplate {
+  id: string;
+  name: string;
+  description: string;
+  sections: string[];
+  template_type: string;
+}
+
+// Template API methods
+export const templateAPI = {
+  // List all templates
+  async listTemplates(): Promise<TemplateListResponse> {
+    const response = await api.get('/templates/');
+    return response.data;
+  },
+
+  // Create template from Confluence URL
+  async createTemplate(
+    sourceUrl: string,
+    credentials: ConfluenceCredentials,
+    name?: string,
+    description?: string,
+    syncEnabled: boolean = true
+  ): Promise<TemplateResponse> {
+    const response = await api.post('/templates/', {
+      source_url: sourceUrl,
+      credentials,
+      name,
+      description,
+      sync_enabled: syncEnabled,
+    });
+    return response.data;
+  },
+
+  // Get specific template
+  async getTemplate(templateId: string): Promise<TemplateResponse> {
+    const response = await api.get(`/templates/${templateId}`);
+    return response.data;
+  },
+
+  // Update template
+  async updateTemplate(
+    templateId: string,
+    updates: {
+      name?: string;
+      description?: string;
+      content?: string;
+      sections?: string[];
+      sync_enabled?: boolean;
+    }
+  ): Promise<TemplateResponse> {
+    const response = await api.put(`/templates/${templateId}`, updates);
+    return response.data;
+  },
+
+  // Delete template
+  async deleteTemplate(templateId: string): Promise<{ success: boolean; message: string }> {
+    const response = await api.delete(`/templates/${templateId}`);
+    return response.data;
+  },
+
+  // Sync template with Confluence
+  async syncTemplate(templateId: string, credentials: ConfluenceCredentials): Promise<TemplateResponse> {
+    const response = await api.post(`/templates/${templateId}/sync`, { credentials });
+    return response.data;
+  },
+
+  // Sync all templates
+  async syncAllTemplates(credentials: ConfluenceCredentials): Promise<{
+    success: boolean;
+    message: string;
+    synced_count: number;
+    total_syncable: number;
+    total_templates: number;
+    errors?: string[];
+  }> {
+    const response = await api.post('/templates/sync-all', { credentials });
+    return response.data;
+  },
+
+  // Get built-in templates
+  async getBuiltinTemplates(): Promise<{
+    success: boolean;
+    message: string;
+    templates: BuiltinTemplate[];
+    count: number;
+  }> {
+    const response = await api.get('/templates/builtin/list');
     return response.data;
   },
 };

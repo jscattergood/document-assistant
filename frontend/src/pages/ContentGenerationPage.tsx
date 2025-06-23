@@ -43,7 +43,7 @@ import {
   Code,
   Article,
 } from '@mui/icons-material';
-import { confluenceAPI, documentAPI } from '../services/api';
+import { confluenceAPI, documentAPI, templateAPI } from '../services/api';
 import toast from 'react-hot-toast';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -63,6 +63,7 @@ interface ContentTemplate {
   name: string;
   description: string;
   sections: string[];
+  template_type?: string;
 }
 
 interface Document {
@@ -123,12 +124,8 @@ const ContentGenerationPage: React.FC = () => {
     loadTemplatePreference();
   }, []);
   
-  // Reload templates when Confluence config changes (to pick up custom templates)
-  useEffect(() => {
-    if (confluenceConfig.url && confluenceConfig.token) {
-      loadTemplates();
-    }
-  }, [confluenceConfig.url, confluenceConfig.token, confluenceConfig.space_key]);
+  // No longer need to reload templates when Confluence config changes
+  // Templates are now managed independently through the template API
   
   useEffect(() => {
     scrollToBottom();
@@ -198,70 +195,64 @@ const ContentGenerationPage: React.FC = () => {
   const loadTemplates = async () => {
     setLoadingTemplates(true);
     try {
-
+      // Load both built-in and custom templates from the backend
+      const [builtinResult, customResult] = await Promise.all([
+        templateAPI.getBuiltinTemplates(),
+        templateAPI.listTemplates()
+      ]);
       
-      // First, load the static templates
-      const staticResult = await confluenceAPI.getContentTemplates();
-      let allTemplates = staticResult.success ? staticResult.templates : {};
-      let customTemplateCount = 0;
+      let allTemplates: Record<string, ContentTemplate> = {};
+      let builtinCount = 0;
+      let customCount = 0;
       
-      // Then, try to load any custom templates from Confluence if we have credentials
-      if (confluenceConfig.url && confluenceConfig.token) {
-        try {
-          // Check if there are any custom template URLs saved in localStorage
-          const savedCustomTemplates = localStorage.getItem('custom_template_urls');
-          if (savedCustomTemplates) {
-            const customUrls = JSON.parse(savedCustomTemplates);
-            if (Array.isArray(customUrls) && customUrls.length > 0) {
-
-              
-              const credentials = {
-                url: confluenceConfig.url,
-                username: '',
-                api_token: confluenceConfig.token,
-                auth_type: confluenceConfig.auth_type,
-              };
-              
-              const customResult = await confluenceAPI.getConfluenceTemplates(
-                credentials,
-                confluenceConfig.space_key,
-                customUrls
-              );
-              
-              if (customResult.success && customResult.templates) {
-                // Merge custom templates with static templates
-                allTemplates = { ...allTemplates, ...customResult.templates };
-                customTemplateCount = Object.keys(customResult.templates).length;
-
-              }
-            }
-          }
-        } catch (customError) {
-          console.error('Error loading custom templates:', customError);
-          // Continue with static templates only
-        }
+      // Add built-in templates
+      if (builtinResult.success) {
+        builtinResult.templates.forEach(template => {
+          allTemplates[template.id] = {
+            id: template.id,
+            name: template.name,
+            description: template.description,
+            sections: template.sections,
+            template_type: 'builtin'
+          };
+        });
+        builtinCount = builtinResult.templates.length;
+      }
+      
+      // Add custom templates
+      if (customResult.success) {
+        customResult.templates.forEach(template => {
+          allTemplates[template.id] = {
+            id: template.id,
+            name: template.name,
+            description: template.description,
+            sections: template.sections,
+            template_type: template.template_type
+          };
+        });
+        customCount = customResult.templates.length;
       }
       
       setTemplates(allTemplates);
-
       
       // Validate and restore saved template preference
       const savedTemplate = localStorage.getItem('preferred_template');
       if (savedTemplate && allTemplates[savedTemplate]) {
         setSelectedTemplate(savedTemplate);
-
       } else if (savedTemplate && !allTemplates[savedTemplate]) {
-
         // Clear invalid preference
         localStorage.removeItem('preferred_template');
+        // Default to documentation template if available
+        if (allTemplates['documentation']) {
+          setSelectedTemplate('documentation');
+        }
       }
       
       // Show success message with template counts
-      const staticCount = Object.keys(staticResult.templates || {}).length;
-      if (customTemplateCount > 0) {
-        toast.success(`Loaded ${staticCount} built-in templates and ${customTemplateCount} custom templates`);
+      if (customCount > 0) {
+        toast.success(`Loaded ${builtinCount} built-in templates and ${customCount} custom templates`);
       } else {
-        toast.success(`Loaded ${staticCount} built-in templates`);
+        toast.success(`Loaded ${builtinCount} built-in templates`);
       }
     } catch (error) {
       console.error('Error loading templates:', error);
@@ -779,8 +770,18 @@ const ContentGenerationPage: React.FC = () => {
             >
               {Object.entries(templates).map(([key, template]) => (
                 <MenuItem key={key} value={key}>
-                  <Box>
-                    <Typography>{template.name}</Typography>
+                  <Box sx={{ width: '100%' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                      <Typography>{template.name}</Typography>
+                      {template.template_type && (
+                        <Chip 
+                          label={template.template_type} 
+                          size="small" 
+                          color={template.template_type === 'builtin' ? 'default' : 'primary'}
+                          variant="outlined"
+                        />
+                      )}
+                    </Box>
                     {template.description && (
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                         {template.description}

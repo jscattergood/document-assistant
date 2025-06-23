@@ -1,0 +1,20 @@
+{
+  "last_updated": "2025-06-22T19:44:30.130765",
+  "template_count": 2,
+  "templates": {
+    "f529017b-79b8-4664-a2ed-1ec4b5490913": {
+      "name": "PSET-RFC - Example",
+      "template_type": "confluence",
+      "source_url": "https://wiki.autodesk.com/display/~scattej/PSET-RFC+-+Example",
+      "created_at": "2025-06-22T19:32:22.335342",
+      "updated_at": "2025-06-22T19:43:43.265282"
+    },
+    "e9b8923c-e0cd-467e-b7fd-baadab62f93a": {
+      "name": "Solution Design Template",
+      "template_type": "confluence",
+      "source_url": "https://wiki.autodesk.com/display/~scattej/Solution+Design+Template",
+      "created_at": "2025-06-22T19:44:30.129263",
+      "updated_at": "2025-06-22T19:44:30.129263"
+    }
+  }
+}
