@@ -248,12 +248,7 @@ const ContentGenerationPage: React.FC = () => {
         }
       }
       
-      // Show success message with template counts
-      if (customCount > 0) {
-        toast.success(`Loaded ${builtinCount} built-in templates and ${customCount} custom templates`);
-      } else {
-        toast.success(`Loaded ${builtinCount} built-in templates`);
-      }
+      // Templates loaded successfully (no toast needed)
     } catch (error) {
       console.error('Error loading templates:', error);
       toast.error('Failed to load content templates');
@@ -367,8 +362,6 @@ const ContentGenerationPage: React.FC = () => {
             ? { ...msg, content: `Generated content: "${result.title}"`, isGenerating: false }
             : msg
         ));
-        
-        toast.success('Content generated successfully!');
       } else {
         setMessages(prev => prev.map(msg => 
           msg.id === assistantMessage.id 
@@ -401,7 +394,6 @@ const ContentGenerationPage: React.FC = () => {
           content: result.enhanced_content,
           preview: result.enhanced_content.replace(/<[^>]*>/g, '').substring(0, 500) + '...'
         } : null);
-        toast.success('Content enhanced successfully!');
       } else {
         toast.error('Failed to enhance content');
       }
@@ -420,8 +412,6 @@ const ContentGenerationPage: React.FC = () => {
         : generatedContent.content;
       
       navigator.clipboard.writeText(contentToCopy);
-      const format = previewMode === 'markdown' && generatedContent.markdown ? 'Markdown' : 'HTML';
-      toast.success(`${format} content copied to clipboard!`);
     }
   };
 
@@ -474,8 +464,6 @@ const ContentGenerationPage: React.FC = () => {
           timestamp: new Date(),
         };
         setMessages(prev => [...prev, successMessage]);
-        
-        toast.success(`Content ${actionText} in Confluence successfully!`);
       } else {
         throw new Error(result.message || 'Publishing failed');
       }
