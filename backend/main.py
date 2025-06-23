@@ -14,6 +14,7 @@ from src.api.chat import router as chat_router
 from src.api.confluence import router as confluence_router
 from src.api.models import router as models_router
 from src.api.templates import router as templates_router
+from src.api.web_import import router as web_import_router
 from src.document_processor.service import DocumentService
 
 # Load environment variables
@@ -154,6 +155,7 @@ app.include_router(chat_router, prefix="/api/chat", tags=["chat"])
 app.include_router(confluence_router, prefix="/api/confluence", tags=["confluence"])
 app.include_router(models_router, prefix="/api/models", tags=["models"])
 app.include_router(templates_router, prefix="/api/templates", tags=["templates"])
+app.include_router(web_import_router, prefix="/api", tags=["web-import"])
 
 # Mount static files for uploaded documents
 if not os.path.exists("../data/documents"):

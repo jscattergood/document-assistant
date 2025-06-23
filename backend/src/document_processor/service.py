@@ -313,10 +313,10 @@ class OllamaLLM(LLM):
     model_name: str
     default_max_tokens: int = 512
     base_url: str = "http://localhost:11434"
+    available: bool = False
     
     def __init__(self, model_name: str, **kwargs):
-        super().__init__(model_name=model_name, **kwargs)
-        self._available = False
+        super().__init__(model_name=model_name, available=False, **kwargs)
         self._init_model()
     
     def _init_model(self):
@@ -324,14 +324,14 @@ class OllamaLLM(LLM):
             # Test Ollama connection with a simple HTTP request
             response = requests.get(f"{self.base_url}/api/tags", timeout=5)
             if response.status_code == 200:
-                self._available = True
+                self.available = True
                 print(f"Successfully connected to Ollama: {self.model_name}")
             else:
-                self._available = False
+                self.available = False
                 print(f"Ollama not responding: {response.status_code}")
         except Exception as e:
             print(f"Failed to connect to Ollama: {e}")
-            self._available = False
+            self.available = False
     
     def set_default_max_tokens(self, max_tokens: int):
         """Set the default max_tokens for this LLM instance."""
@@ -347,7 +347,7 @@ class OllamaLLM(LLM):
     
     @llm_completion_callback()
     def complete(self, prompt: str, **kwargs) -> CompletionResponse:
-        if not self._available:
+        if not self.available:
             return CompletionResponse(text="Ollama model not available. Please ensure Ollama is running.")
         
         try:
@@ -384,7 +384,7 @@ class OllamaLLM(LLM):
     
     @llm_completion_callback()
     def chat(self, messages, **kwargs):
-        if not self._available:
+        if not self.available:
             from llama_index.core.llms.types import ChatResponse, ChatMessage
             return ChatResponse(
                 message=ChatMessage(role="assistant", content="Ollama model not available. Please ensure Ollama is running.")
@@ -681,6 +681,78 @@ class DocumentService:
                     except Exception as e:
                         print(f"Error parsing Confluence frontmatter in {file_path.name}: {e}")
             
+            # Check if it's a Web import file (markdown with metadata header)
+            if file_path.name.startswith('web_') and file_path.suffix == '.md' and doc_type != DocumentType.PDF:
+                # Parse markdown frontmatter for text files only
+                if content.startswith('---\n'):
+                    try:
+                        parts = content.split('---\n', 2)
+                        if len(parts) >= 3:
+                            frontmatter = parts[1]
+                            doc_content = parts[2]
+                            
+                            # Parse frontmatter
+                            web_metadata = {}
+                            for line in frontmatter.strip().split('\n'):
+                                if ':' in line:
+                                    key, value = line.split(':', 1)
+                                    web_metadata[key.strip()] = value.strip()
+                            
+                            # Extract content-specific metadata from the actual content
+                            content_metadata = await self._extract_content_metadata(file_path, DocumentType.MARKDOWN, doc_content)
+                            
+                            # Combine file metadata with web metadata
+                            combined_metadata = {**file_metadata, **content_metadata, **web_metadata}
+                            
+                            doc_id = web_metadata.get('doc_id')
+                            if doc_id:
+                                document = Document(
+                                    id=doc_id,
+                                    title=web_metadata.get('title', file_path.stem),
+                                    type=DocumentType.MARKDOWN,
+                                    content=doc_content.strip(),
+                                    file_path=str(file_path),
+                                    status=DocumentStatus.PROCESSING,
+                                    size_bytes=file_metadata['size_bytes'],
+                                    created_at=datetime.fromtimestamp(file_metadata['created_at']),
+                                    updated_at=datetime.fromtimestamp(file_metadata['modified_at']),
+                                    metadata=combined_metadata
+                                )
+                                
+                                # CRITICAL FIX: Create LlamaIndex document and insert into vector index
+                                if self.index is not None:
+                                    # Enhance content for better RAG performance
+                                    enhanced_content = self._enhance_document_for_rag(doc_content.strip(), {
+                                        'title': web_metadata.get('title', file_path.stem),
+                                        'document_type': 'webpage',
+                                        'filename': file_path.name,
+                                        **combined_metadata
+                                    })
+                                    
+                                    llama_doc = LlamaDocument(
+                                        text=enhanced_content,
+                                        metadata={
+                                            "doc_id": doc_id,
+                                            "title": web_metadata.get('title', file_path.stem),
+                                            "type": "webpage",
+                                            "file_path": str(file_path),
+                                            **combined_metadata
+                                        }
+                                    )
+                                    
+                                    self.index.insert(llama_doc)
+                                    print(f"Inserted web document into vector index: {file_path.name}")
+                                
+                                # Update status to indexed
+                                document.status = DocumentStatus.INDEXED
+                                
+                                # Add to documents dictionary
+                                self.documents[doc_id] = document
+                                print(f"Loaded web document: {document.title} with {len(combined_metadata)} metadata fields")
+                                return
+                    except Exception as e:
+                        print(f"Error parsing web frontmatter in {file_path.name}: {e}")
+            
             # Handle regular uploaded files
             # Generate a doc_id based on file path and modification time
             file_stat = file_path.stat()
@@ -963,8 +1035,12 @@ class DocumentService:
             # Extract header hierarchy
             headers = re.findall(r'^(#{1,6})\s+(.+)$', content, re.MULTILINE)
             if headers:
-                metadata['markdown_header_levels'] = [len(h[0]) for h in headers]
-                metadata['markdown_header_text'] = [h[1].strip() for h in headers]
+                # Convert lists to strings to avoid validation errors
+                header_levels = [len(h[0]) for h in headers]
+                metadata['markdown_header_levels'] = ','.join(map(str, header_levels))
+                metadata['markdown_header_text'] = ' | '.join([h[1].strip() for h in headers])
+                metadata['markdown_max_header_level'] = max(header_levels) if header_levels else 0
+                metadata['markdown_min_header_level'] = min(header_levels) if header_levels else 0
             
             return metadata
             
@@ -1914,8 +1990,169 @@ CONTENT:
             return f"Error in chat: {str(e)}"
     
     def get_all_documents(self) -> List[Document]:
-        """Get all processed documents."""
+        """Get all processed documents, loading from disk if not in memory."""
+        # First, scan for any documents on disk that aren't loaded in memory
+        try:
+            # Create a set of all loaded file paths (normalized to absolute paths)
+            loaded_file_paths = set()
+            for doc in self.documents.values():
+                if doc.file_path:
+                    try:
+                        abs_path = str(Path(doc.file_path).resolve())
+                        loaded_file_paths.add(abs_path)
+                    except:
+                        loaded_file_paths.add(doc.file_path)
+            
+            # Also track files we've processed in this method call to avoid duplicates
+            processed_in_this_call = set()
+            
+            for file_path in self.documents_dir.glob("*.md"):
+                file_path_abs = str(file_path.resolve())
+                
+                # Skip if already loaded in memory OR already processed in this call
+                if file_path_abs in loaded_file_paths or file_path_abs in processed_in_this_call:
+                    continue
+                
+                # Found a document on disk not in memory - try to load it synchronously
+                print(f"Loading missing document from disk: {file_path}")
+                try:
+                    self._load_document_from_file_sync(file_path)
+                    print(f"Successfully loaded missing document: {file_path.name}")
+                    # Mark as processed to avoid loading again in this same call
+                    processed_in_this_call.add(file_path_abs)
+                except Exception as e:
+                    print(f"Error loading missing document {file_path}: {e}")
+                    
+        except Exception as e:
+            print(f"Error scanning for missing documents: {e}")
+        
         return list(self.documents.values())
+
+    def _load_document_from_file_sync(self, file_path: Path) -> None:
+        """Load a document from file synchronously (for use in sync contexts)."""
+        try:
+            # Read content
+            try:
+                content = file_path.read_text(encoding='utf-8')
+            except UnicodeDecodeError:
+                # Fallback for files with different encoding
+                try:
+                    content = file_path.read_text(encoding='latin-1')
+                except Exception:
+                    # Last resort - treat as binary and convert
+                    with open(file_path, 'rb') as f:
+                        raw_content = f.read()
+                        content = str(raw_content, errors='ignore')
+            
+            # Determine document type
+            doc_type = self._get_document_type(file_path.name)
+            
+            # Check if it's a Confluence file (markdown with metadata header)
+            if file_path.name.startswith('confluence_') and file_path.suffix == '.md':
+                if content.startswith('---\n'):
+                    try:
+                        parts = content.split('---\n', 2)
+                        if len(parts) >= 3:
+                            frontmatter = parts[1]
+                            doc_content = parts[2]
+                            
+                            # Parse frontmatter
+                            confluence_metadata = {}
+                            for line in frontmatter.strip().split('\n'):
+                                if ':' in line:
+                                    key, value = line.split(':', 1)
+                                    confluence_metadata[key.strip()] = value.strip()
+                            
+                            doc_id = confluence_metadata.get('doc_id')
+                            if doc_id:
+                                # Check if we already have a document with this doc_id
+                                if doc_id in self.documents:
+                                    existing_doc = self.documents[doc_id]
+                                    print(f"Duplicate Confluence document found: {confluence_metadata.get('title', file_path.stem)}")
+                                    print(f"  Existing: {existing_doc.file_path}")
+                                    print(f"  Duplicate: {file_path}")
+                                    print(f"  Skipping duplicate file: {file_path.name}")
+                                    return
+                                
+                                document = Document(
+                                    id=doc_id,
+                                    title=confluence_metadata.get('title', file_path.stem),
+                                    type=DocumentType.CONFLUENCE,
+                                    content=doc_content.strip(),
+                                    file_path=str(file_path),
+                                    status=DocumentStatus.INDEXED,  # Assume already indexed since it's on disk
+                                    metadata=confluence_metadata
+                                )
+                                
+                                # Store in memory
+                                self.documents[doc_id] = document
+                                print(f"Loaded Confluence document: {document.title}")
+                                return
+                    except Exception as e:
+                        print(f"Error parsing Confluence frontmatter in {file_path.name}: {e}")
+            
+            # Check if it's a Web import file (markdown with metadata header)
+            if file_path.name.startswith('web_') and file_path.suffix == '.md':
+                if content.startswith('---\n'):
+                    try:
+                        parts = content.split('---\n', 2)
+                        if len(parts) >= 3:
+                            frontmatter = parts[1]
+                            doc_content = parts[2]
+                            
+                            # Parse frontmatter
+                            web_metadata = {}
+                            for line in frontmatter.strip().split('\n'):
+                                if ':' in line:
+                                    key, value = line.split(':', 1)
+                                    web_metadata[key.strip()] = value.strip()
+                            
+                            doc_id = web_metadata.get('doc_id')
+                            if doc_id:
+                                # Check if we already have a document with this doc_id
+                                if doc_id in self.documents:
+                                    existing_doc = self.documents[doc_id]
+                                    print(f"Duplicate web document found: {web_metadata.get('title', file_path.stem)}")
+                                    print(f"  Existing: {existing_doc.file_path}")
+                                    print(f"  Duplicate: {file_path}")
+                                    print(f"  Skipping duplicate file: {file_path.name}")
+                                    return
+                                
+                                document = Document(
+                                    id=doc_id,
+                                    title=web_metadata.get('title', file_path.stem),
+                                    type=DocumentType.MARKDOWN,
+                                    content=doc_content.strip(),
+                                    file_path=str(file_path),
+                                    status=DocumentStatus.INDEXED,  # Assume already indexed since it's on disk
+                                    metadata=web_metadata
+                                )
+                                
+                                # Store in memory
+                                self.documents[doc_id] = document
+                                print(f"Loaded web document: {document.title}")
+                                return
+                    except Exception as e:
+                        print(f"Error parsing web frontmatter in {file_path.name}: {e}")
+            
+            # Handle regular files - create a simple document
+            doc_id = str(uuid.uuid4())
+            document = Document(
+                id=doc_id,
+                title=file_path.stem,
+                type=doc_type,
+                content=content,
+                file_path=str(file_path),
+                status=DocumentStatus.INDEXED,
+                metadata={}
+            )
+            
+            # Store in memory
+            self.documents[doc_id] = document
+            print(f"Loaded document: {document.title}")
+            
+        except Exception as e:
+            raise Exception(f"Failed to load document from {file_path}: {e}")
     
     def get_document(self, doc_id: str) -> Optional[Document]:
         """Get a specific document by ID."""
@@ -2068,6 +2305,135 @@ REMEMBER: You may have context from multiple documents even if not explicitly la
                 id=doc_id,
                 title=llama_doc.metadata.get('title', 'Untitled Confluence Page'),
                 type=DocumentType.CONFLUENCE,
+                status=DocumentStatus.ERROR,
+                metadata=llama_doc.metadata
+            )
+            self.documents[doc_id] = document
+            raise
+    
+    async def add_web_document(self, llama_doc: LlamaDocument, doc_id: str) -> Document:
+        """Add a web document to the main document service."""
+        try:
+            title = llama_doc.metadata.get('title', 'Untitled Web Page')
+            
+            # Create a safe filename from the title and doc_id
+            safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+            safe_title = safe_title.replace(' ', '_')[:50]  # Limit length
+            filename = f"web_{safe_title}_{doc_id[:8]}.md"
+            
+            # Save content as a markdown file
+            web_file_path = self.documents_dir / filename
+            
+            # Create markdown content with metadata header
+            markdown_content = f"""---
+title: {title}
+source: web_import
+url: {llama_doc.metadata.get('url', '')}
+original_url: {llama_doc.metadata.get('original_url', '')}
+domain: {llama_doc.metadata.get('domain', '')}
+document_type: webpage
+extraction_method: {llama_doc.metadata.get('extraction_method', 'unknown')}
+imported_at: {llama_doc.metadata.get('imported_at', '')}
+doc_id: {doc_id}
+---
+
+# {title}
+
+{llama_doc.text}
+"""
+            
+            # Write to file
+            with open(web_file_path, 'w', encoding='utf-8') as f:
+                f.write(markdown_content)
+            
+            print(f"Saved web content to: {web_file_path}")
+            
+            # Extract comprehensive file metadata after file creation
+            file_metadata = await self._extract_file_metadata(web_file_path)
+            
+            # Extract content metadata from the text content
+            content_metadata = await self._extract_content_metadata(
+                web_file_path, 
+                DocumentType.MARKDOWN,  # Use MARKDOWN type for web content (saved as .md files)
+                llama_doc.text
+            )
+            
+            # Combine all metadata sources
+            combined_metadata = {
+                **file_metadata,
+                **content_metadata,
+                **llama_doc.metadata  # Web-specific metadata has highest priority
+            }
+            
+            # Create a Document object for tracking
+            document = Document(
+                id=doc_id,
+                title=title,
+                type=DocumentType.MARKDOWN,  # Use MARKDOWN type for web content (saved as .md files)
+                content=llama_doc.text,
+                status=DocumentStatus.PROCESSING,
+                metadata=combined_metadata,
+                file_path=str(web_file_path),
+                size_bytes=file_metadata['size_bytes'],
+                created_at=datetime.fromtimestamp(file_metadata['created_at']),
+                updated_at=datetime.fromtimestamp(file_metadata['modified_at'])
+            )
+            
+            # Add to the vector index
+            if self.index is not None:
+                # Update the llama_doc metadata to include all extracted metadata
+                enhanced_llama_doc = LlamaDocument(
+                    text=llama_doc.text,
+                    metadata={
+                        **llama_doc.metadata,
+                        **combined_metadata,
+                        "doc_id": doc_id,
+                        "file_path": str(web_file_path)
+                    }
+                )
+                
+                # Insert the enhanced document into the index
+                self.index.insert(enhanced_llama_doc)
+                
+                # Update query and chat engines with multi-document retrieval
+                self.query_engine = self._create_multi_document_query_engine(similarity_top_k=12)
+                
+                settings = self._load_app_settings()
+                self.chat_engine = self.index.as_chat_engine(
+                    chat_mode="condense_plus_context",
+                    similarity_top_k=10,  # Higher retrieval for better document coverage
+                    verbose=True,
+                    system_prompt=f"""You are a helpful document analysis assistant with access to multiple documents. Use ALL the provided document context to answer questions accurately and comprehensively.
+
+CRITICAL INSTRUCTIONS:
+1. SEARCH THROUGH ALL document context provided - you may have content from multiple documents
+2. When listing documents, analyze ALL the context to identify different document sources
+3. Look for document titles, filenames, and content from different sources in your context
+4. For questions about specific documents (like "PSET-RFC"), search through all context for partial matches
+5. Provide comprehensive summaries that draw from multiple documents when available
+6. Reference specific documents by title/filename when possible
+7. If you find multiple documents, clearly distinguish between them in your response
+8. Keep responses under {settings['max_tokens']} tokens but prioritize multi-document coverage
+
+REMEMBER: You may have context from multiple documents even if not explicitly labeled - analyze all content provided."""
+                )
+            
+            # Mark as indexed
+            document.status = DocumentStatus.INDEXED
+            
+            # Store in documents dictionary
+            self.documents[doc_id] = document
+            
+            print(f"Successfully added web document: {document.title} with {len(combined_metadata)} metadata fields")
+            return document
+            
+        except Exception as e:
+            print(f"Error adding web document {doc_id}: {e}")
+            # Create error document
+            document = Document(
+                id=doc_id,
+                title=llama_doc.metadata.get('title', 'Untitled Web Page'),
+                type=DocumentType.MARKDOWN,
                 status=DocumentStatus.ERROR,
                 metadata=llama_doc.metadata
             )

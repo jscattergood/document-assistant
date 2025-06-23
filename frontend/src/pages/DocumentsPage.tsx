@@ -35,9 +35,10 @@ import {
   Article,
   Code,
   Link,
+  Language,
 } from '@mui/icons-material';
 import { useDropzone } from 'react-dropzone';
-import { documentAPI, confluenceAPI } from '../services/api';
+import { documentAPI, confluenceAPI, webImportAPI } from '../services/api';
 import type { Document } from '../services/api';
 import toast from 'react-hot-toast';
 
@@ -48,6 +49,8 @@ const DocumentsPage: React.FC = () => {
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; document?: Document }>({ open: false });
   const [confluenceUrl, setConfluenceUrl] = useState('');
   const [uploadingFromUrl, setUploadingFromUrl] = useState(false);
+  const [webUrl, setWebUrl] = useState('');
+  const [uploadingFromWebUrl, setUploadingFromWebUrl] = useState(false);
 
   // Fetch documents on component mount
   useEffect(() => {
@@ -184,6 +187,47 @@ const DocumentsPage: React.FC = () => {
     }
   };
 
+  const handleWebUrlUpload = async () => {
+    if (!webUrl.trim()) {
+      toast.error('Please enter a valid webpage URL');
+      return;
+    }
+
+    // Basic URL validation
+    try {
+      new URL(webUrl);
+    } catch {
+      toast.error('Please enter a valid URL (must include http:// or https://)');
+      return;
+    }
+
+    setUploadingFromWebUrl(true);
+    try {
+      // Test URL accessibility first
+      const testResponse = await webImportAPI.previewUrl(webUrl);
+      if (!testResponse.success || !testResponse.accessible) {
+        toast.error(`Cannot access webpage: ${testResponse.error || 'Unknown error'}`);
+        return;
+      }
+
+      // Import the page
+      const response = await webImportAPI.importPage(webUrl, 'auto');
+      
+      if (response.success) {
+        toast.success(`Successfully imported webpage: ${response.title}`);
+        setWebUrl('');
+        fetchDocuments(); // Refresh the document list
+      } else {
+        toast.error(response.message || 'Failed to import webpage');
+      }
+    } catch (error) {
+      console.error('Error importing webpage:', error);
+      toast.error('Error importing webpage');
+    } finally {
+      setUploadingFromWebUrl(false);
+    }
+  };
+
   const onDrop = useCallback((acceptedFiles: File[]) => {
     handleFileUpload(acceptedFiles);
   }, []);
@@ -316,6 +360,48 @@ const DocumentsPage: React.FC = () => {
               sx={{ minWidth: 120 }}
             >
               {uploadingFromUrl ? 'Importing...' : 'Import'}
+            </Button>
+          </Box>
+        </Box>
+
+        <Divider sx={{ my: 4 }}>
+          <Typography variant="body2" color="text.secondary">
+            OR
+          </Typography>
+        </Divider>
+
+        {/* Web URL Import */}
+        <Box sx={{ textAlign: 'center' }}>
+          <Box sx={{ mb: 2 }}>
+            <Language sx={{ fontSize: 48, color: 'primary.main' }} />
+          </Box>
+          <Typography variant="h5" component="h3" sx={{ mb: 2 }}>
+            Import from Web
+          </Typography>
+          <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
+            Import content from any accessible webpage
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3, fontStyle: 'italic' }}>
+            Supports articles, documentation, blog posts, and more
+          </Typography>
+          
+          <Box sx={{ display: 'flex', gap: 2, maxWidth: 800, mx: 'auto' }}>
+            <TextField
+              fullWidth
+              label="Webpage URL"
+              placeholder="https://example.com/article"
+              value={webUrl}
+              onChange={(e) => setWebUrl(e.target.value)}
+              variant="outlined"
+              disabled={uploadingFromWebUrl}
+            />
+            <Button
+              variant="contained"
+              onClick={handleWebUrlUpload}
+              disabled={!webUrl.trim() || uploadingFromWebUrl}
+              sx={{ minWidth: 120 }}
+            >
+              {uploadingFromWebUrl ? 'Importing...' : 'Import'}
             </Button>
           </Box>
         </Box>

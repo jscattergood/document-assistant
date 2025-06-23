@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 import aiohttp
 import aiofiles
 
@@ -27,11 +27,15 @@ def get_document_service() -> DocumentService:
 
 class EmbeddingModelRequest(BaseModel):
     """Request to change embedding model."""
+    model_config = ConfigDict(protected_namespaces=())
+    
     model_key: str
     use_gpu: Optional[bool] = None
 
 class EmbeddingModelResponse(BaseModel):
     """Response for embedding model operations."""
+    model_config = ConfigDict(protected_namespaces=())
+    
     success: bool
     message: str
     model_info: Optional[Dict[str, Any]] = None
@@ -68,6 +72,8 @@ class GPT4AllModelInfo(BaseModel):
 
 class ModelDownloadRequest(BaseModel):
     """Request to download a model."""
+    model_config = ConfigDict(protected_namespaces=())
+    
     model_name: str
     download_url: str
 

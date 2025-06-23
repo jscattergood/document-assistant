@@ -798,4 +798,39 @@ export const templateAPI = {
   },
 };
 
+// Web Import API methods
+export const webImportAPI = {
+  // Preview a URL to see if it's accessible and get basic info before importing
+  async previewUrl(url: string): Promise<{
+    success: boolean;
+    accessible: boolean;
+    title?: string;
+    description?: string;
+    final_url?: string;
+    content_type?: string;
+    error?: string;
+  }> {
+    const response = await api.post('/web-import/preview-url', { url });
+    return response.data;
+  },
+
+  // Import a web page as a permanent document
+  async importPage(
+    url: string,
+    extractMode: 'auto' | 'readability' | 'full' = 'auto'
+  ): Promise<{
+    success: boolean;
+    message: string;
+    title?: string;
+    url: string;
+    document_id?: string;
+  }> {
+    const response = await api.post('/web-import/import-page', {
+      url,
+      extract_mode: extractMode
+    });
+    return response.data;
+  },
+};
+
 export default api; 
