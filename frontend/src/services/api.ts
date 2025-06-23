@@ -380,6 +380,18 @@ export const confluenceAPI = {
     });
     return response.data;
   },
+
+  // Publish existing content to Confluence without regenerating
+  publishContent: async (request: {
+    credentials: ConfluenceCredentials;
+    space_key: string;
+    title: string;
+    content: string;
+    parent_page_id?: string;
+  }) => {
+    const response = await api.post('/confluence/publish', request);
+    return response.data;
+  },
 };
 
 // Models API methods

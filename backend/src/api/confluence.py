@@ -1588,54 +1588,158 @@ def create_content_preview(content: str) -> str:
     
     return preview
 
+class ConfluencePublishRequest(BaseModel):
+    """Request for publishing existing content to Confluence."""
+    credentials: ConfluenceCredentials
+    space_key: str
+    title: str
+    content: str
+    parent_page_id: Optional[str] = None
+
+class ConfluencePublishResponse(BaseModel):
+    """Response from publishing content to Confluence."""
+    success: bool
+    message: str
+    page_id: Optional[str] = None
+    web_url: Optional[str] = None
+
+@router.post("/publish", response_model=ConfluencePublishResponse)
+async def publish_existing_content(request: ConfluencePublishRequest):
+    """Publish existing content to Confluence without regenerating it."""
+    try:
+        result = await publish_to_confluence(
+            credentials=request.credentials,
+            space_key=request.space_key,
+            title=request.title,
+            content=request.content,
+            parent_page_id=request.parent_page_id
+        )
+        
+        return ConfluencePublishResponse(
+            success=result["success"],
+            message=result["message"],
+            page_id=result.get("page_id"),
+            web_url=result.get("web_url")
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error publishing content: {str(e)}")
+
 async def publish_to_confluence(credentials: ConfluenceCredentials, space_key: str, title: str, content: str, parent_page_id: Optional[str] = None) -> dict:
-    """Publish content directly to Confluence."""
+    """Publish content directly to Confluence. Updates existing page if title exists, creates new one otherwise."""
     import requests
     
     try:
         # Set up authentication headers
         auth_headers = get_auth_headers(credentials)
+        base_url = credentials.url.rstrip('/')
         
-        # Prepare page data
-        page_data = {
-            "type": "page",
+        # First, check if a page with this title already exists in the space
+        search_url = f"{base_url}/rest/api/content"
+        search_params = {
+            "spaceKey": space_key,
             "title": title,
-            "space": {"key": space_key},
-            "body": {
-                "storage": {
-                    "value": content,
-                    "representation": "storage"
-                }
-            }
+            "type": "page",
+            "status": "current",
+            "expand": "version"
         }
         
-        # Add parent page if specified
-        if parent_page_id:
-            page_data["ancestors"] = [{"id": parent_page_id}]
-        
-        # Create the page
-        api_url = f"{credentials.url.rstrip('/')}/rest/api/content"
-        
-        response = requests.post(
-            api_url,
+        search_response = requests.get(
+            search_url,
             headers=auth_headers,
-            json=page_data,
+            params=search_params,
             timeout=30
         )
         
-        if response.status_code == 200:
-            result = response.json()
-            page_id = result.get('id')
-            web_url = f"{credentials.url.rstrip('/')}/wiki/spaces/{space_key}/pages/{page_id}"
+        existing_page = None
+        if search_response.status_code == 200:
+            search_results = search_response.json()
+            if search_results.get('results') and len(search_results['results']) > 0:
+                existing_page = search_results['results'][0]
+        
+        if existing_page:
+            # Update existing page
+            page_id = existing_page['id']
+            current_version = existing_page['version']['number']
             
-            return {
-                "success": True,
-                "page_id": page_id,
-                "web_url": web_url,
-                "message": "Page created successfully"
+            page_data = {
+                "version": {
+                    "number": current_version + 1
+                },
+                "title": title,
+                "type": "page",
+                "body": {
+                    "storage": {
+                        "value": content,
+                        "representation": "storage"
+                    }
+                }
             }
+            
+            # Update the page
+            update_url = f"{base_url}/rest/api/content/{page_id}"
+            response = requests.put(
+                update_url,
+                headers=auth_headers,
+                json=page_data,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                web_url = f"{base_url}/wiki/spaces/{space_key}/pages/{page_id}"
+                
+                return {
+                    "success": True,
+                    "page_id": page_id,
+                    "web_url": web_url,
+                    "message": f"Page updated successfully (version {current_version + 1})",
+                    "action": "updated"
+                }
+            else:
+                raise Exception(f"Failed to update page: {response.status_code} - {response.text}")
+        
         else:
-            raise Exception(f"Failed to create page: {response.status_code} - {response.text}")
+            # Create new page
+            page_data = {
+                "type": "page",
+                "title": title,
+                "space": {"key": space_key},
+                "body": {
+                    "storage": {
+                        "value": content,
+                        "representation": "storage"
+                    }
+                }
+            }
+            
+            # Add parent page if specified
+            if parent_page_id:
+                page_data["ancestors"] = [{"id": parent_page_id}]
+            
+            # Create the page
+            create_url = f"{base_url}/rest/api/content"
+            response = requests.post(
+                create_url,
+                headers=auth_headers,
+                json=page_data,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                page_id = result.get('id')
+                web_url = f"{base_url}/wiki/spaces/{space_key}/pages/{page_id}"
+                
+                return {
+                    "success": True,
+                    "page_id": page_id,
+                    "web_url": web_url,
+                    "message": "Page created successfully",
+                    "action": "created"
+                }
+            else:
+                raise Exception(f"Failed to create page: {response.status_code} - {response.text}")
             
     except Exception as e:
         raise Exception(f"Error publishing to Confluence: {str(e)}")

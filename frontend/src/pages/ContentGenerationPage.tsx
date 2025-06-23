@@ -412,7 +412,7 @@ const ContentGenerationPage: React.FC = () => {
     }
   };
   
-  const handleCopyContent = () => {
+    const handleCopyContent = () => {
     if (generatedContent) {
       // Copy based on current preview mode in full preview, or HTML by default for main preview
       const contentToCopy = previewMode === 'markdown' && generatedContent.markdown 
@@ -424,7 +424,80 @@ const ContentGenerationPage: React.FC = () => {
       toast.success(`${format} content copied to clipboard!`);
     }
   };
-  
+
+  const handlePublishContent = async () => {
+    if (!generatedContent) return;
+    
+    // Validate Confluence configuration
+    if (!confluenceConfig.url || !confluenceConfig.token) {
+      toast.error('Please configure Confluence settings first');
+      return;
+    }
+    
+    const targetSpaceKey = publishSpaceKey || confluenceConfig.space_key;
+    if (!targetSpaceKey) {
+      toast.error('Please specify a Confluence space key for publishing');
+      return;
+    }
+    
+    try {
+      setIsGenerating(true);
+      
+      // Publish the existing content directly without regenerating
+      const result = await confluenceAPI.publishContent({
+        credentials: {
+          url: confluenceConfig.url,
+          username: '',
+          api_token: confluenceConfig.token,
+          auth_type: confluenceConfig.auth_type,
+        },
+        space_key: targetSpaceKey,
+        title: generatedContent.title,
+        content: generatedContent.content, // Use the existing generated content
+      });
+      
+      if (result.success && result.page_id) {
+        // Update the generated content with published page info
+        setGeneratedContent(prev => prev ? {
+          ...prev,
+          page_id: result.page_id,
+          web_url: result.web_url
+        } : null);
+        
+        // Add success message to chat
+        const action = result.action || 'published';
+        const actionText = action === 'updated' ? 'updated' : 'created';
+        const successMessage: ChatMessage = {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: `✅ Content ${actionText} successfully in Confluence!\n\n**Page ID:** ${result.page_id}\n**Space:** ${targetSpaceKey}\n**URL:** ${result.web_url || 'Check your Confluence space'}\n**Action:** ${result.message}`,
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, successMessage]);
+        
+        toast.success(`Content ${actionText} in Confluence successfully!`);
+      } else {
+        throw new Error(result.message || 'Publishing failed');
+      }
+      
+    } catch (error: any) {
+      console.error('Error publishing content:', error);
+      
+      // Add error message to chat
+      const errorMessage: ChatMessage = {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: `❌ Failed to publish content: ${error.message || 'Unknown error'}\n\nPlease check your Confluence settings and try again.`,
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
+      
+      toast.error(`Failed to publish: ${error.message || 'Unknown error'}`);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   const handleClearChat = () => {
     setMessages([]);
     setGeneratedContent(null);
@@ -715,11 +788,13 @@ const ContentGenerationPage: React.FC = () => {
                     <Button
                       variant="contained"
                       size="small"
-                      startIcon={<Publish />}
+                      startIcon={isGenerating ? <CircularProgress size={16} /> : <Publish />}
                       color="success"
                       title={`Publish to ${publishSpaceKey || confluenceConfig.space_key || 'Confluence'} space`}
+                      onClick={handlePublishContent}
+                      disabled={isGenerating}
                     >
-                      Publish to {publishSpaceKey || confluenceConfig.space_key || 'Confluence'}
+                      {isGenerating ? 'Publishing...' : `Publish to ${publishSpaceKey || confluenceConfig.space_key || 'Confluence'}`}
                     </Button>
                   </Box>
                 </>
