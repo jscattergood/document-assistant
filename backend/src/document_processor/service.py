@@ -489,6 +489,10 @@ class DocumentService:
             # Add conversation context settings
             "max_conversation_history": 10,  # Maximum number of previous messages to include
             "enable_conversation_context": True,  # Whether to include conversation history at all
+            # Dynamic context window settings
+            "enable_dynamic_context": True,  # Whether to use dynamic context window scaling
+            "max_context_window": None,  # Override max context (None = auto-detect)
+            "context_quality_mode": "balanced",  # "speed", "balanced", "comprehensive"
         }
         
         if settings_file.exists():
@@ -1245,17 +1249,28 @@ Instructions:
         """Get list of available embedding models."""
         return BERTEmbedding.BERT_MODELS
     
-    def _manage_context_window(self, nodes, query: str, max_total_tokens: int = 2000) -> List:
+    def _manage_context_window(self, nodes, query: str, max_total_tokens: int = None) -> List:
         """
         Intelligently manage context window by truncating document content while preserving relevance.
+        Uses dynamic context window sizing based on model capabilities and document count.
         
         Args:
             nodes: Retrieved document nodes
             query: The user's query for relevance ranking
-            max_total_tokens: Maximum tokens to use for all document content
+            max_total_tokens: Maximum tokens to use for all document content (auto-calculated if None)
         """
         if not nodes:
             return nodes
+        
+        # Dynamic context window calculation
+        if max_total_tokens is None:
+            settings = self._load_app_settings()
+            if settings.get('enable_dynamic_context', True):
+                max_total_tokens = self._calculate_dynamic_context_window(len(nodes))
+                print(f"🔧 Dynamic context: {max_total_tokens} tokens for {len(nodes)} documents")
+            else:
+                max_total_tokens = 2000  # Fallback to original static value
+                print(f"🔧 Static context: {max_total_tokens} tokens (dynamic disabled)")
             
         # Calculate tokens per document (evenly distributed with some buffer)
         tokens_per_doc = max_total_tokens // len(nodes)
@@ -1279,6 +1294,14 @@ Instructions:
             if hasattr(actual_node, 'text') and actual_node.text:
                 original_text = actual_node.text
                 original_tokens = self._estimate_token_count(original_text)
+                
+                # Debug: Show document info
+                doc_info = "Unknown"
+                if hasattr(actual_node, 'metadata') and actual_node.metadata:
+                    doc_info = actual_node.metadata.get('filename', actual_node.metadata.get('title', 'Unknown'))
+                
+                text_preview = original_text[:100].replace('\n', ' ')
+                print(f"   📄 Doc: {doc_info}, tokens: {original_tokens}, preview: '{text_preview}...'")
                 
                 if original_tokens <= tokens_per_doc:
                     # Document fits entirely
@@ -1376,6 +1399,86 @@ Instructions:
             
         truncated = ' '.join(words[:max_words])
         return truncated + "..." if len(words) > max_words else truncated
+    
+    def _calculate_dynamic_context_window(self, num_documents: int) -> int:
+        """
+        Calculate optimal context window size based on model capabilities and document count.
+        
+        Strategy:
+        - Detect model's maximum context capability
+        - Scale context window based on number of relevant documents found
+        - Balance comprehensiveness vs performance
+        - Provide safety limits and fallbacks
+        """
+        settings = self._load_app_settings()
+        
+        # Detect model capabilities
+        model_max_context = settings.get('max_context_window') or self._get_model_max_context()
+        
+        # Quality mode affects how aggressively we use context
+        quality_mode = settings.get('context_quality_mode', 'balanced')
+        
+        if quality_mode == 'speed':
+            # Speed mode: Smaller contexts for faster responses
+            context_multipliers = [0.05, 0.1, 0.15, 0.25]
+        elif quality_mode == 'comprehensive':
+            # Comprehensive mode: Larger contexts for better quality
+            context_multipliers = [0.15, 0.3, 0.5, 0.7]
+        else:  # balanced
+            # Balanced mode: Original scaling
+            context_multipliers = [0.1, 0.2, 0.4, 0.6]
+        
+        # Base context scaling strategy
+        if num_documents <= 2:
+            target_context = min(8000, int(model_max_context * context_multipliers[0]))
+        elif num_documents <= 4:
+            target_context = min(20000, int(model_max_context * context_multipliers[1]))
+        elif num_documents <= 8:
+            target_context = min(50000, int(model_max_context * context_multipliers[2]))
+        else:
+            target_context = min(80000, int(model_max_context * context_multipliers[3]))
+        
+        # Reserve 20% for response generation
+        context_for_documents = int(target_context * 0.8)
+        
+        # Safety minimums and maximums
+        context_for_documents = max(2000, context_for_documents)  # Never go below current
+        context_for_documents = min(100000, context_for_documents)  # Reasonable upper limit
+        
+        print(f"📊 Context scaling ({quality_mode}): {num_documents} docs → {context_for_documents} tokens (model max: {model_max_context})")
+        
+        return context_for_documents
+    
+    def _get_model_max_context(self) -> int:
+        """
+        Detect the maximum context window of the current model.
+        """
+        settings = self._load_app_settings()
+        llm_provider = settings.get('llm_provider', 'gpt4all')
+        
+        if llm_provider == 'ollama':
+            # Most modern LLaMA models support 128k context
+            ollama_model = settings.get('preferred_ollama_model', 'llama3.2:3b')
+            
+            # Model-specific context limits
+            if 'llama3.2' in ollama_model.lower():
+                return 128000  # 128k context window
+            elif 'llama3.1' in ollama_model.lower():
+                return 128000  # 128k context window  
+            elif 'llama3' in ollama_model.lower():
+                return 8192    # Original LLaMA 3 context
+            elif 'llama2' in ollama_model.lower():
+                return 4096    # LLaMA 2 context
+            else:
+                return 32000   # Conservative default for unknown LLaMA variants
+                
+        elif llm_provider == 'gpt4all':
+            # GPT4All models typically have smaller context windows
+            return 8192
+        
+        else:
+            # Unknown provider - conservative default
+            return 4096
 
     def _ensure_multi_document_retrieval(self, nodes, max_nodes: int = 8) -> List:
         """
