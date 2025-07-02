@@ -401,6 +401,37 @@ async def search_confluence(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error searching Confluence: {str(e)}")
 
+def _generate_confluence_api_base(base_url: str, netloc: str) -> str:
+    """
+    Intelligently generate Confluence API base URL from web URL.
+    Handles different Confluence deployment types correctly.
+    """
+    
+    # If already an API URL, return as-is
+    if 'api.' in netloc:
+        return base_url
+    
+    # Confluence URL patterns based on deployment type
+    api_patterns = [
+        # Confluence Cloud - API uses same domain, no subdomain prefix
+        ('atlassian.net', lambda url: url),  # Keep same URL, path handled elsewhere
+        
+        # Enterprise/Self-hosted patterns - typically use api. subdomain
+        ('wiki.', lambda url: url.replace('wiki.', 'api.wiki.')),
+        ('confluence.', lambda url: url.replace('confluence.', 'api.confluence.')),
+        
+        # Generic enterprise fallback - add api subdomain
+        ('', lambda url: url.replace('://', '://api.'))
+    ]
+    
+    # Apply first matching pattern
+    for pattern, transform in api_patterns:
+        if not pattern or pattern in netloc:  # Empty pattern matches all (fallback)
+            return transform(base_url)
+    
+    # Fallback (should never reach here)
+    return base_url.replace('://', '://api.')
+
 def parse_confluence_url(web_url: str) -> dict:
     """Parse Confluence web URL to extract page ID, space key, and generate API URL."""
     try:
@@ -411,12 +442,12 @@ def parse_confluence_url(web_url: str) -> dict:
         
         # Handle different Confluence URL formats
         if 'pageId=' in web_url:
-            # Format: https://wiki.autodesk.com/spaces/viewspace.action?key=~scattej&pageId=123456
+            # Format: https://confluence.company.com/spaces/viewspace.action?key=~user&pageId=123456
             query_params = parse_qs(parsed.query)
             page_id = query_params.get('pageId', [None])[0]
             space_key = query_params.get('key', [None])[0]
         elif 'spaceKey=' in web_url and 'title=' in web_url:
-            # Format: https://wiki.autodesk.com/pages/viewpage.action?spaceKey=PSET&title=Page+Title
+            # Format: https://confluence.company.com/pages/viewpage.action?spaceKey=SPACE&title=Page+Title
             query_params = parse_qs(parsed.query)
             space_key = query_params.get('spaceKey', [None])[0]
             page_title = query_params.get('title', [None])[0]
@@ -425,7 +456,7 @@ def parse_confluence_url(web_url: str) -> dict:
                 from urllib.parse import unquote
                 page_title = unquote(page_title).replace('+', ' ')
         elif '/display/' in web_url:
-            # Format: https://wiki.autodesk.com/display/SPACE/Page+Title
+            # Format: https://confluence.company.com/display/SPACE/Page+Title
             path_parts = parsed.path.split('/')
             if 'display' in path_parts:
                 display_index = path_parts.index('display')
@@ -437,7 +468,7 @@ def parse_confluence_url(web_url: str) -> dict:
                     from urllib.parse import unquote
                     page_title = unquote(page_title).replace('+', ' ')
         elif '/pages/' in web_url:
-            # Format: https://wiki.autodesk.com/spaces/SPACE/pages/123456/Page+Title
+            # Format: https://company.atlassian.net/wiki/spaces/SPACE/pages/123456/Page+Title
             path_parts = parsed.path.split('/')
             if 'pages' in path_parts:
                 page_index = path_parts.index('pages')
@@ -449,7 +480,7 @@ def parse_confluence_url(web_url: str) -> dict:
                         if space_index + 1 < len(path_parts):
                             space_key = path_parts[space_index + 1]
         elif '/x/' in web_url:
-            # Format: https://wiki.autodesk.com/x/ABC123 (short URLs)
+            # Format: https://company.atlassian.net/x/ABC123 (short URLs for Cloud)
             path_parts = parsed.path.split('/')
             if 'x' in path_parts:
                 x_index = path_parts.index('x')
@@ -459,16 +490,9 @@ def parse_confluence_url(web_url: str) -> dict:
         else:
             raise ValueError("Unrecognized Confluence URL format")
         
-        # Generate API URL base
+        # Generate API URL base using intelligent pattern detection
         base_url = f"{parsed.scheme}://{parsed.netloc}"
-        if 'api.' in parsed.netloc:
-            api_base = base_url
-        else:
-            # For Autodesk specifically, convert wiki.autodesk.com to api.wiki.autodesk.com  
-            if 'wiki.autodesk.com' in parsed.netloc:
-                api_base = base_url.replace('wiki.autodesk.com', 'api.wiki.autodesk.com')
-            else:
-                api_base = base_url.replace('wiki.', 'api.wiki.')
+        api_base = _generate_confluence_api_base(base_url, parsed.netloc)
         
         return {
             "page_id": page_id,

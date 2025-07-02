@@ -347,7 +347,7 @@ const DocumentsPage: React.FC = () => {
             <TextField
               fullWidth
               label="Confluence Page URL"
-              placeholder="https://wiki.autodesk.com/pages/viewpage.action?spaceKey=PSET&title=Page+Title"
+              placeholder="https://your-company.atlassian.net/wiki/spaces/SPACE/pages/12345/Page+Title"
               value={confluenceUrl}
               onChange={(e) => setConfluenceUrl(e.target.value)}
               variant="outlined"
