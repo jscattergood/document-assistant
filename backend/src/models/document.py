@@ -22,6 +22,7 @@ class DocumentType(str, Enum):
     MARKDOWN = "markdown"
     HTML = "html"
     CONFLUENCE = "confluence"
+    TRANSCRIPT = "transcript"
 
 class DocumentStatus(str, Enum):
     """Document processing status."""

@@ -173,8 +173,8 @@ async def query_documents(
 ):
     """Query documents with a natural language question."""
     try:
-        # Perform the query
-        response = await service.query_documents(
+        # Perform the query with source tracking
+        response, sources = await service.query_documents_with_sources(
             query=request.message,
             document_ids=request.document_ids
         )
@@ -183,7 +183,7 @@ async def query_documents(
             success=True,
             message="Query processed successfully",
             response=response,
-            sources=[]  # TODO: Extract source documents from response
+            sources=sources
         )
         
     except Exception as e:
@@ -204,8 +204,8 @@ async def chat_with_documents(
                 for msg in request.conversation_history
             ]
         
-        # Chat with documents
-        response = await service.chat_with_documents(
+        # Chat with documents with source tracking
+        response, sources = await service.chat_with_documents_with_sources(
             message=request.message,
             conversation_history=conversation_history
         )
@@ -214,7 +214,7 @@ async def chat_with_documents(
             success=True,
             message="Chat response generated successfully",
             response=response,
-            sources=[]  # TODO: Extract source documents from response
+            sources=sources
         )
         
     except Exception as e:
@@ -247,7 +247,7 @@ async def generate_document_content(
         Request: {request.message}
         """
         
-        response = await service.query_documents(
+        response, sources = await service.query_documents_with_sources(
             query=generation_prompt,
             document_ids=request.document_ids
         )
@@ -256,7 +256,7 @@ async def generate_document_content(
             success=True,
             message="Content generated successfully",
             response=response,
-            sources=[]
+            sources=sources
         )
         
     except Exception as e:
@@ -286,7 +286,7 @@ async def generate_confluence_draft(
         Page topic: {request.message}
         """
         
-        response = await service.query_documents(
+        response, sources = await service.query_documents_with_sources(
             query=confluence_prompt,
             document_ids=request.document_ids
         )
@@ -296,7 +296,7 @@ async def generate_confluence_draft(
             "message": "Confluence draft generated successfully",
             "draft": response,
             "title": request.message,
-            "sources": []
+            "sources": sources
         }
         
     except Exception as e:
@@ -341,8 +341,8 @@ async def generate_advanced_confluence_content(
         else:
             conversation_history = []
         
-        # Chat with documents using enhanced prompt
-        response = await service.chat_with_documents(
+        # Chat with documents using enhanced prompt with source tracking
+        response, sources = await service.chat_with_documents_with_sources(
             message=content_prompt,
             conversation_history=conversation_history
         )
@@ -353,7 +353,7 @@ async def generate_advanced_confluence_content(
             "content": response,
             "content_type": "confluence_advanced",
             "format": "storage",
-            "sources": []  # TODO: Extract source documents from response
+            "sources": sources
         }
         
     except Exception as e:

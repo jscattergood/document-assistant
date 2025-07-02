@@ -8,6 +8,7 @@ import re
 import hashlib
 import mimetypes
 import json
+import logging
 from datetime import datetime
 import platform
 import pwd
@@ -249,17 +250,16 @@ class GPT4AllLLM(LLM):
             model_name=self.model_name,
         )
     
-    @llm_completion_callback()
     def complete(self, prompt: str, **kwargs) -> CompletionResponse:
         if not self._available or self._model is None:
-            return CompletionResponse(text="GPT4All model not available. Please check model installation.")
+            return CompletionResponse(text="GPT4All model not available. Please check model installation.", additional_kwargs={})
         
         try:
             max_tokens = kwargs.get('max_tokens', self.default_max_tokens)
             response = self._model.generate(prompt, max_tokens=max_tokens)
-            return CompletionResponse(text=response)
+            return CompletionResponse(text=response, additional_kwargs={})
         except Exception as e:
-            return CompletionResponse(text=f"Error generating response: {e}")
+            return CompletionResponse(text=f"Error generating response: {e}", additional_kwargs={})
     
     @llm_completion_callback()
     def stream_complete(self, prompt: str, **kwargs):
@@ -267,7 +267,6 @@ class GPT4AllLLM(LLM):
         response = self.complete(prompt, **kwargs)
         yield response
     
-    @llm_completion_callback()
     def chat(self, messages, **kwargs):
         # Convert chat messages to a single prompt
         prompt = ""
@@ -345,10 +344,9 @@ class OllamaLLM(LLM):
             model_name=self.model_name,
         )
     
-    @llm_completion_callback()
     def complete(self, prompt: str, **kwargs) -> CompletionResponse:
         if not self.available:
-            return CompletionResponse(text="Ollama model not available. Please ensure Ollama is running.")
+            return CompletionResponse(text="Ollama model not available. Please ensure Ollama is running.", additional_kwargs={})
         
         try:
             max_tokens = kwargs.get('max_tokens', self.default_max_tokens)
@@ -369,12 +367,12 @@ class OllamaLLM(LLM):
             
             if response.status_code == 200:
                 result = response.json()
-                return CompletionResponse(text=result.get("response", ""))
+                return CompletionResponse(text=result.get("response", ""), additional_kwargs={})
             else:
-                return CompletionResponse(text=f"Error: Ollama API returned {response.status_code}")
+                return CompletionResponse(text=f"Error: Ollama API returned {response.status_code}", additional_kwargs={})
                 
         except Exception as e:
-            return CompletionResponse(text=f"Error generating response: {e}")
+            return CompletionResponse(text=f"Error generating response: {e}", additional_kwargs={})
     
     @llm_completion_callback()
     def stream_complete(self, prompt: str, **kwargs):
@@ -382,16 +380,13 @@ class OllamaLLM(LLM):
         response = self.complete(prompt, **kwargs)
         yield response
     
-    @llm_completion_callback()
     def chat(self, messages, **kwargs):
         if not self.available:
-            from llama_index.core.llms.types import ChatResponse, ChatMessage
             return ChatResponse(
                 message=ChatMessage(role="assistant", content="Ollama model not available. Please ensure Ollama is running.")
             )
         
         try:
-            from llama_index.core.llms.types import ChatResponse, ChatMessage
             
             # Convert LlamaIndex messages to Ollama format
             ollama_messages = []
@@ -425,7 +420,6 @@ class OllamaLLM(LLM):
                 )
                 
         except Exception as e:
-            from llama_index.core.llms.types import ChatResponse, ChatMessage
             return ChatResponse(
                 message=ChatMessage(role="assistant", content=f"Error generating response: {e}")
             )
@@ -475,6 +469,11 @@ class DocumentService:
         # Ensure directories exist
         for directory in [self.data_dir, self.documents_dir, self.models_dir, self.chroma_dir, self.templates_dir]:
             directory.mkdir(parents=True, exist_ok=True)
+            
+        # Configure logging to reduce LlamaIndex verbosity
+        logging.getLogger("llama_index").setLevel(logging.WARNING)
+        logging.getLogger("chromadb").setLevel(logging.WARNING)
+        logging.getLogger("httpx").setLevel(logging.WARNING)
 
     def _load_app_settings(self) -> Dict[str, Any]:
         """Load application settings from file."""
@@ -590,11 +589,11 @@ class DocumentService:
             doc_type = self._get_document_type(file_path.name)
             
             # Handle different file types appropriately
-            if doc_type in [DocumentType.PDF, DocumentType.DOCX]:
-                # For binary files, extract content using specialized methods
+            if doc_type in [DocumentType.PDF, DocumentType.DOCX, DocumentType.TRANSCRIPT]:
+                # For binary files and transcripts, extract content using specialized methods
                 content = await self._extract_content(str(file_path), doc_type)
             else:
-                # For text files, read as UTF-8
+                # For other text files, read as UTF-8
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
                         content = f.read()
@@ -676,7 +675,7 @@ class DocumentService:
                                 
                                 # Add to documents dictionary
                                 self.documents[doc_id] = document
-                                print(f"Loaded Confluence document: {document.title} with {len(combined_metadata)} metadata fields")
+                                print(f"✓ Loaded: {document.title} (confluence)")
                                 return
                     except Exception as e:
                         print(f"Error parsing Confluence frontmatter in {file_path.name}: {e}")
@@ -734,9 +733,8 @@ class DocumentService:
                                         metadata={
                                             "doc_id": doc_id,
                                             "title": web_metadata.get('title', file_path.stem),
-                                            "type": "webpage",
-                                            "file_path": str(file_path),
-                                            **combined_metadata
+                                            "filename": file_path.name,
+                                            "type": "webpage"
                                         }
                                     )
                                     
@@ -748,7 +746,7 @@ class DocumentService:
                                 
                                 # Add to documents dictionary
                                 self.documents[doc_id] = document
-                                print(f"Loaded web document: {document.title} with {len(combined_metadata)} metadata fields")
+                                print(f"✓ Loaded: {document.title} (webpage)")
                                 return
                     except Exception as e:
                         print(f"Error parsing web frontmatter in {file_path.name}: {e}")
@@ -787,15 +785,14 @@ class DocumentService:
                 metadata=combined_metadata
             )
             
-            # Create LlamaIndex document with enhanced content for better RAG
+            # Create LlamaIndex document with MINIMAL metadata to prevent token bloat
             llama_doc = LlamaDocument(
                 text=enhanced_content,  # Use enhanced content for indexing
                 metadata={
                     "doc_id": doc_id,
                     "title": file_path.stem,
-                    "type": doc_type.value,
-                    "file_path": str(file_path),
-                    **combined_metadata  # Include all extracted metadata
+                    "filename": file_path.name,
+                    "type": doc_type.value
                 }
             )
             
@@ -810,7 +807,9 @@ class DocumentService:
             # Update status to indexed
             document.status = DocumentStatus.INDEXED
             
-            print(f"Loaded document: {document.title} ({doc_type.value}) with {len(combined_metadata)} metadata fields")
+            # Calculate token count for logging
+            token_count = self._estimate_token_count(content)
+            print(f"✓ Loaded: {document.title} ({doc_type.value}, {token_count} tokens)")
             
         except Exception as e:
             print(f"Error loading document from {file_path}: {e}")
@@ -1224,21 +1223,16 @@ class DocumentService:
         # Initialize chat engine with multi-document retrieval
         self.chat_engine = self.index.as_chat_engine(
             chat_mode="condense_plus_context",  # Better for multi-document conversations
-            similarity_top_k=10,  # Higher retrieval for better document coverage
+            similarity_top_k=8,  # Reduced from 10 to save tokens
             verbose=True,
-            system_prompt=f"""You are a helpful document analysis assistant with access to multiple documents. Use ALL the provided document context to answer questions accurately and comprehensively.
+            system_prompt=f"""You are a document analysis assistant. Use the provided context to answer questions accurately.
 
-CRITICAL INSTRUCTIONS:
-1. SEARCH THROUGH ALL document context provided - you may have content from multiple documents
-2. When listing documents, analyze ALL the context to identify different document sources
-3. Look for document titles, filenames, and content from different sources in your context
-4. For questions about specific documents (like "PSET-RFC"), search through all context for partial matches
-5. Provide comprehensive summaries that draw from multiple documents when available
-6. Reference specific documents by title/filename when possible
-7. If you find multiple documents, clearly distinguish between them in your response
-8. Keep responses under {settings['max_tokens']} tokens but prioritize multi-document coverage
-
-REMEMBER: You may have context from multiple documents even if not explicitly labeled - analyze all content provided."""
+Instructions:
+1. Search through all document context provided
+2. Reference specific documents by title when possible
+3. Distinguish between multiple documents in your response
+4. Keep responses under {settings['max_tokens']} tokens
+5. Prioritize accuracy over completeness if space is limited"""
         )
     
     def get_embedding_info(self) -> Dict[str, Any]:
@@ -1251,6 +1245,138 @@ REMEMBER: You may have context from multiple documents even if not explicitly la
         """Get list of available embedding models."""
         return BERTEmbedding.BERT_MODELS
     
+    def _manage_context_window(self, nodes, query: str, max_total_tokens: int = 2000) -> List:
+        """
+        Intelligently manage context window by truncating document content while preserving relevance.
+        
+        Args:
+            nodes: Retrieved document nodes
+            query: The user's query for relevance ranking
+            max_total_tokens: Maximum tokens to use for all document content
+        """
+        if not nodes:
+            return nodes
+            
+        # Calculate tokens per document (evenly distributed with some buffer)
+        tokens_per_doc = max_total_tokens // len(nodes)
+        min_tokens_per_doc = 200  # Minimum meaningful content per document
+        
+        # If we can't give each document meaningful content, reduce document count
+        if tokens_per_doc < min_tokens_per_doc:
+            # Keep only the most relevant documents
+            max_docs = max_total_tokens // min_tokens_per_doc
+            nodes = nodes[:max_docs]
+            tokens_per_doc = max_total_tokens // len(nodes)
+        
+        print(f"🔧 Context management: {len(nodes)} documents, ~{tokens_per_doc} tokens each (max: {max_total_tokens})")
+        
+        # Truncate each document's content intelligently
+        managed_nodes = []
+        for node in nodes:
+            # Handle both Node and NodeWithScore objects
+            actual_node = node.node if hasattr(node, 'node') else node
+            
+            if hasattr(actual_node, 'text') and actual_node.text:
+                original_text = actual_node.text
+                original_tokens = self._estimate_token_count(original_text)
+                
+                if original_tokens <= tokens_per_doc:
+                    # Document fits entirely
+                    print(f"   ✓ Document fits: {original_tokens} tokens")
+                    managed_nodes.append(node)
+                else:
+                    # Need to truncate - preserve most relevant parts
+                    print(f"   ✂️  Truncating: {original_tokens} → {tokens_per_doc} tokens")
+                    truncated_text = self._smart_truncate_content(
+                        original_text, query, tokens_per_doc
+                    )
+                    # Modify the actual node's text
+                    actual_node.text = truncated_text
+                    managed_nodes.append(node)
+            else:
+                managed_nodes.append(node)
+                
+        return managed_nodes
+    
+    def _smart_truncate_content(self, content: str, query: str, max_tokens: int) -> str:
+        """
+        Intelligently truncate content while preserving the most relevant parts.
+        
+        Strategy:
+        1. Split content into paragraphs
+        2. Score each paragraph for relevance to query
+        3. Keep highest-scoring paragraphs that fit within token limit
+        """
+        if not content or not content.strip():
+            return content
+            
+        # Split into paragraphs (preserve structure)
+        paragraphs = [p.strip() for p in content.split('\n\n') if p.strip()]
+        
+        if not paragraphs:
+            # Fallback: just truncate by tokens
+            return self._truncate_by_tokens(content, max_tokens)
+        
+        # Score paragraphs by relevance to query
+        query_lower = query.lower()
+        query_words = set(query_lower.split())
+        
+        scored_paragraphs = []
+        for para in paragraphs:
+            para_lower = para.lower()
+            # Simple relevance scoring
+            score = 0
+            
+            # Exact query match gets highest score
+            if query_lower in para_lower:
+                score += 10
+                
+            # Word overlap scoring
+            para_words = set(para_lower.split())
+            common_words = query_words.intersection(para_words)
+            score += len(common_words) * 2
+            
+            # Length penalty (prefer concise relevant content)
+            para_tokens = self._estimate_token_count(para)
+            if para_tokens > 300:  # Very long paragraphs get slight penalty
+                score -= 1
+                
+            scored_paragraphs.append((score, para_tokens, para))
+        
+        # Sort by relevance score (descending)
+        scored_paragraphs.sort(key=lambda x: x[0], reverse=True)
+        
+        # Select paragraphs that fit within token limit
+        selected_paragraphs = []
+        total_tokens = 0
+        
+        for score, tokens, para in scored_paragraphs:
+            if total_tokens + tokens <= max_tokens:
+                selected_paragraphs.append(para)
+                total_tokens += tokens
+            elif total_tokens == 0:  # First paragraph is too long, truncate it
+                truncated_para = self._truncate_by_tokens(para, max_tokens)
+                selected_paragraphs.append(truncated_para)
+                break
+        
+        # If we got nothing, use fallback truncation
+        if not selected_paragraphs:
+            return self._truncate_by_tokens(content, max_tokens)
+            
+        return '\n\n'.join(selected_paragraphs)
+    
+    def _truncate_by_tokens(self, text: str, max_tokens: int) -> str:
+        """Simple token-based truncation with word boundary preservation."""
+        words = text.split()
+        # Rough estimate: ~1.3 words per token
+        max_words = int(max_tokens * 1.3)
+        
+        if len(words) <= max_words:
+            return text
+            
+        truncated = ' '.join(words[:max_words])
+        return truncated + "..." if len(words) > max_words else truncated
+
     def _ensure_multi_document_retrieval(self, nodes, max_nodes: int = 8) -> List:
         """
         Ensure retrieved nodes come from multiple documents when possible.
@@ -1330,7 +1456,9 @@ REMEMBER: You may have context from multiple documents even if not explicitly la
                 # Get more nodes initially
                 nodes = super()._retrieve(query_bundle)
                 # Apply multi-document filtering
-                return self.service._ensure_multi_document_retrieval(nodes, max_nodes=8)
+                filtered_nodes = self.service._ensure_multi_document_retrieval(nodes, max_nodes=6)
+                # Apply smart context management
+                return self.service._manage_context_window(filtered_nodes, query_bundle.query_str)
         
         # Create the custom retriever
         retriever = MultiDocumentRetriever(
@@ -1343,88 +1471,13 @@ REMEMBER: You may have context from multiple documents even if not explicitly la
         query_engine = RetrieverQueryEngine.from_args(
             retriever=retriever,
             response_mode=ResponseMode.TREE_SUMMARIZE,  # Better for multiple documents
-            verbose=True
+            verbose=False  # Disable verbose logging to reduce log clutter
         )
         
         return query_engine
     
-    def _create_targeted_query_engine(self, target_keywords: List[str], similarity_top_k: int = 8):
-        """Create a query engine that prioritizes specific documents by keywords."""
-        from llama_index.core.query_engine import RetrieverQueryEngine
-        from llama_index.core.retrievers import VectorIndexRetriever
-        from llama_index.core.response_synthesizers import ResponseMode
-        
-        # Create a custom retriever that prioritizes target documents
-        class TargetedRetriever(VectorIndexRetriever):
-            def __init__(self, index, similarity_top_k, target_keywords, service_instance):
-                super().__init__(index, similarity_top_k=similarity_top_k)
-                self.target_keywords = [kw.lower() for kw in target_keywords]
-                self.service = service_instance
-            
-            def _retrieve(self, query_bundle):
-                # Get initial nodes
-                nodes = super()._retrieve(query_bundle)
-                
-                # Separate targeted vs other nodes
-                targeted_nodes = []
-                other_nodes = []
-                
-                for node in nodes:
-                    # Check if this node matches any target keywords
-                    is_targeted = False
-                    if hasattr(node, 'metadata') and node.metadata:
-                        # Check various metadata fields for matches
-                        metadata_text = ' '.join([
-                            str(node.metadata.get('file_path', '')),
-                            str(node.metadata.get('title', '')),
-                            str(node.metadata.get('filename', '')),
-                            str(node.metadata.get('doc_id', ''))
-                        ]).lower()
-                        
-                        # Also check the actual content
-                        content_text = getattr(node, 'text', '').lower()
-                        combined_text = metadata_text + ' ' + content_text
-                        
-                        for keyword in self.target_keywords:
-                            if keyword in combined_text:
-                                is_targeted = True
-                                break
-                    
-                    if is_targeted:
-                        targeted_nodes.append(node)
-                    else:
-                        other_nodes.append(node)
-                
-                # Prioritize targeted nodes, then fill with others
-                max_nodes = 6  # Reduced to fit in context window
-                result_nodes = targeted_nodes[:max_nodes]
-                
-                # Fill remaining slots with other nodes
-                remaining_slots = max_nodes - len(result_nodes)
-                if remaining_slots > 0:
-                    result_nodes.extend(other_nodes[:remaining_slots])
-                
-                print(f"Targeted retrieval: Found {len(targeted_nodes)} targeted nodes, {len(other_nodes)} other nodes")
-                print(f"Selected {len(result_nodes)} total nodes for context")
-                
-                return result_nodes
-        
-        # Create the targeted retriever
-        retriever = TargetedRetriever(
-            index=self.index,
-            similarity_top_k=similarity_top_k,
-            target_keywords=target_keywords,
-            service_instance=self
-        )
-        
-        # Create query engine with the targeted retriever
-        query_engine = RetrieverQueryEngine.from_args(
-            retriever=retriever,
-            response_mode=ResponseMode.COMPACT,  # More focused for targeted retrieval
-            verbose=True
-        )
-        
-        return query_engine
+    # Removed _create_targeted_query_engine - was hardcoded to specific documents
+    # Now using only generic semantic similarity retrieval
     
     def _format_response_as_markdown(self, text: str) -> str:
         """Convert plain text response to markdown format."""
@@ -1646,6 +1699,17 @@ REMEMBER: You may have context from multiple documents even if not explicitly la
     def _get_document_type(self, filename: str) -> DocumentType:
         """Determine document type from filename."""
         extension = Path(filename).suffix.lower()
+        filename_lower = filename.lower()
+        
+        # Check for transcript files first (more specific detection)
+        transcript_indicators = [
+            'transcript', 'vtt', 'webvtt', 'srt', 'recording',
+            'meeting', 'call', 'zoom', 'teams', 'conference'
+        ]
+        
+        if (extension in ['.txt', '.vtt', '.srt'] and 
+            any(indicator in filename_lower for indicator in transcript_indicators)):
+            return DocumentType.TRANSCRIPT
         
         type_mapping = {
             ".pdf": DocumentType.PDF,
@@ -1655,7 +1719,9 @@ REMEMBER: You may have context from multiple documents even if not explicitly la
             ".md": DocumentType.MARKDOWN,
             ".markdown": DocumentType.MARKDOWN,
             ".html": DocumentType.HTML,
-            ".htm": DocumentType.HTML
+            ".htm": DocumentType.HTML,
+            ".vtt": DocumentType.TRANSCRIPT,
+            ".srt": DocumentType.TRANSCRIPT
         }
         
         return type_mapping.get(extension, DocumentType.TXT)
@@ -1673,6 +1739,8 @@ REMEMBER: You may have context from multiple documents even if not explicitly la
                 return await self._extract_markdown_content(file_path)
             elif doc_type == DocumentType.HTML:
                 return await self._extract_html_content(file_path)
+            elif doc_type == DocumentType.TRANSCRIPT:
+                return await self._extract_transcript_content(file_path)
             else:
                 return await self._extract_text_content(file_path)
                 
@@ -1716,39 +1784,448 @@ REMEMBER: You may have context from multiple documents even if not explicitly la
             soup = BeautifulSoup(html_content, 'html.parser')
             return soup.get_text()
     
-    def _enhance_document_for_rag(self, content: str, metadata: Dict[str, Any]) -> str:
-        """Enhance document content with contextual information for better RAG retrieval."""
+    async def _extract_transcript_content(self, file_path: str) -> str:
+        """Extract and enhance transcript content while preserving timestamps."""
+        import re
         
-        # Add document context header
+        with open(file_path, 'r', encoding='utf-8') as file:
+            content = file.read()
+        
+        # Detect format
+        if 'WEBVTT' in content[:50]:
+            return self._process_webvtt_content(content)
+        elif '-->' in content and re.search(r'\d{2}:\d{2}:\d{2}', content):
+            return self._process_srt_content(content)
+        else:
+            # Fallback to regular text processing
+            return content
+    
+    def _process_webvtt_content(self, content: str) -> str:
+        """Process WEBVTT format with intelligent timestamp preservation and chunking."""
+        import re
+        
+        lines = content.split('\n')
+        processed_segments = []
+        current_speaker = ''
+        current_text = ''
+        current_timerange = ''
+        
+        timestamp_pattern = r'(\d{2}:\d{2}:\d{2}\.\d{3}) --> (\d{2}:\d{2}:\d{2}\.\d{3})'
+        
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+            
+            # Skip WEBVTT header and empty lines
+            if line == 'WEBVTT' or not line:
+                i += 1
+                continue
+            
+            # Skip sequence numbers
+            if re.match(r'^\d+$', line):
+                i += 1
+                continue
+            
+            # Check for timestamp line
+            timestamp_match = re.search(timestamp_pattern, line)
+            if timestamp_match:
+                start_time = timestamp_match.group(1)
+                end_time = timestamp_match.group(2)
+                current_timerange = f"[{start_time}]"
+                i += 1
+                continue
+            
+            # Process speaker content
+            if ':' in line:
+                # If we have accumulated content, save it
+                if current_text:
+                    processed_segments.append({
+                        'timestamp': current_timerange,
+                        'speaker': current_speaker,
+                        'content': current_text.strip(),
+                        'raw_time': self._parse_timestamp(current_timerange)
+                    })
+                
+                # Start new speaker
+                parts = line.split(':', 1)
+                current_speaker = parts[0].strip()
+                current_text = parts[1].strip() if len(parts) > 1 else ''
+            else:
+                # Continue current speaker's text
+                current_text += ' ' + line
+            
+            i += 1
+        
+        # Don't forget the last segment
+        if current_text:
+            processed_segments.append({
+                'timestamp': current_timerange,
+                'speaker': current_speaker,
+                'content': current_text.strip(),
+                'raw_time': self._parse_timestamp(current_timerange)
+            })
+        
+        # Now chunk the segments intelligently
+        return self._chunk_transcript_segments(processed_segments)
+    
+    def _parse_timestamp(self, timerange: str) -> int:
+        """Convert timestamp to seconds for chunking logic."""
+        import re
+        match = re.search(r'\[(\d{2}):(\d{2}):(\d{2})', timerange)
+        if match:
+            hours, minutes, seconds = map(int, match.groups())
+            return hours * 3600 + minutes * 60 + seconds
+        return 0
+    
+    def _chunk_transcript_segments(self, segments: list, chunk_size_minutes: int = 10, max_tokens_per_chunk: int = 1500) -> str:
+        """Chunk transcript segments by time and token count."""
+        chunks = []
+        current_chunk = []
+        current_chunk_start_time = 0
+        current_chunk_tokens = 0
+        
+        for segment in segments:
+            segment_text = f"{segment['timestamp']} {segment['speaker']}: {segment['content']}"
+            segment_tokens = self._estimate_token_count(segment_text)
+            segment_time = segment['raw_time']
+            
+            # Check if we should start a new chunk
+            should_chunk = (
+                # Time-based chunking (every N minutes)
+                (segment_time - current_chunk_start_time) >= (chunk_size_minutes * 60) or
+                # Token-based chunking
+                (current_chunk_tokens + segment_tokens) > max_tokens_per_chunk or
+                # Logical break detection (long pause in timestamps)
+                (current_chunk and segment_time - current_chunk[-1]['raw_time'] > 300)  # 5 min gap
+            )
+            
+            if should_chunk and current_chunk:
+                # Finalize current chunk
+                chunk_content = self._format_transcript_chunk(current_chunk, len(chunks) + 1)
+                chunks.append(chunk_content)
+                
+                # Start new chunk
+                current_chunk = [segment]
+                current_chunk_start_time = segment_time
+                current_chunk_tokens = segment_tokens
+            else:
+                # Add to current chunk
+                current_chunk.append(segment)
+                current_chunk_tokens += segment_tokens
+                if not current_chunk_start_time:
+                    current_chunk_start_time = segment_time
+        
+        # Don't forget the last chunk
+        if current_chunk:
+            chunk_content = self._format_transcript_chunk(current_chunk, len(chunks) + 1)
+            chunks.append(chunk_content)
+        
+        # Create final document with chunk metadata
+        header = f"""TRANSCRIPT CONTENT (CHUNKED):
+{('='*60)}
+Total Chunks: {len(chunks)}
+Chunking Strategy: {chunk_size_minutes}-minute segments, max {max_tokens_per_chunk} tokens per chunk
+{('='*60)}
+
+"""
+        
+        return header + '\n\n'.join(chunks)
+    
+    def _format_transcript_chunk(self, segments: list, chunk_number: int) -> str:
+        """Format a chunk of transcript segments."""
+        if not segments:
+            return ""
+        
+        start_time = segments[0]['timestamp']
+        end_time = segments[-1]['timestamp']
+        
+        chunk_header = f"CHUNK {chunk_number} ({start_time} to {end_time}):\n{'-'*50}\n"
+        
+        chunk_content = []
+        for segment in segments:
+            chunk_content.append(f"{segment['timestamp']} {segment['speaker']}: {segment['content']}")
+        
+        return chunk_header + '\n\n'.join(chunk_content)
+    
+    def _process_srt_content(self, content: str) -> str:
+        """Process SRT format with timestamp preservation."""
+        import re
+        
+        # SRT format: sequence number, timestamp, content
+        segments = content.split('\n\n')
+        processed_segments = []
+        
+        for segment in segments:
+            lines = segment.strip().split('\n')
+            if len(lines) >= 3:
+                # Skip sequence number (first line)
+                timestamp = lines[1] if '-->' in lines[1] else ''
+                content_lines = lines[2:]
+                
+                if timestamp:
+                    # Convert SRT timestamp to simpler format
+                    start_time = timestamp.split(' --> ')[0].replace(',', '.')
+                    timerange = f"[{start_time}]"
+                    content_text = ' '.join(content_lines)
+                    
+                    processed_segments.append(f"{timerange} {content_text}")
+        
+        header = "TRANSCRIPT CONTENT:\n" + "="*50 + "\n\n"
+        return header + '\n\n'.join(processed_segments)
+    
+    def _enhance_document_for_rag(self, content: str, metadata: Dict[str, Any]) -> str:
+        """Enhance document content with metadata and apply universal chunking for large documents."""
+        
+        # Check if content needs chunking (now optional since metadata bloat is fixed)
+        token_count = self._estimate_token_count(content)
+        chunk_threshold = 8000  # Much higher threshold - chunking may not be needed anymore
+        enable_chunking = False  # EXPERIMENT: Disable chunking to test performance
+        
+        if enable_chunking and token_count > chunk_threshold:
+            print(f"Document exceeds {chunk_threshold} tokens ({token_count}), applying universal chunking")
+            return self._apply_universal_chunking(content, metadata)
+        elif token_count > chunk_threshold:
+            print(f"Document has {token_count} tokens (chunking disabled for testing)")
+        
+        # For smaller documents, just add metadata
         title = metadata.get('title', 'Untitled Document')
         doc_type = metadata.get('document_type', 'Unknown')
         
-        context_header = f"""
-DOCUMENT CONTEXT:
-Title: {title}
-Type: {doc_type}
-Source: {metadata.get('filename', 'Unknown')}
+        enhanced_content = f"""Document: {title}
 
-CONTENT:
+{content}
+"""
+        return enhanced_content
+    
+    def _apply_universal_chunking(self, content: str, metadata: Dict[str, Any]) -> str:
+        """Apply universal chunking strategy to large documents."""
+        doc_type = metadata.get('document_type', DocumentType.TEXT)
+        
+        # Different chunking strategies based on document type
+        if doc_type == DocumentType.TRANSCRIPT and "TRANSCRIPT CONTENT (CHUNKED)" in content:
+            # Transcript already chunked in _extract_transcript_content
+            return content
+        else:
+            return self._chunk_general_document(content, metadata)
+    
+    def _chunk_general_document(self, content: str, metadata: Dict[str, Any]) -> str:
+        """Chunk general documents (non-transcripts) into manageable segments."""
+        max_tokens_per_chunk = 1500
+        overlap_tokens = 150
+        
+        # Split content into paragraphs first
+        paragraphs = content.split('\n\n')
+        chunks = []
+        current_chunk = []
+        current_tokens = 0
+        
+        title = metadata.get('title', 'Untitled Document')
+        doc_type = metadata.get('document_type', 'Unknown')
+        
+        header = f"""Document: {title} (Chunked)
+
 """
         
-        # Enhance content with better structure
-        enhanced_content = context_header + content
-        
-        # Add section markers for better chunking
-        if len(content) > 2000:  # For longer documents
-            # Try to identify natural section breaks
-            sections = content.split('\n\n')
-            if len(sections) > 1:
-                enhanced_sections = []
-                for i, section in enumerate(sections):
-                    if section.strip():
-                        enhanced_sections.append(f"SECTION {i+1}:\n{section.strip()}")
+        for paragraph in paragraphs:
+            if not paragraph.strip():
+                continue
                 
-                if enhanced_sections:
-                    enhanced_content = context_header + '\n\n'.join(enhanced_sections)
+            paragraph_tokens = self._estimate_token_count(paragraph)
+            
+            # If adding this paragraph would exceed the limit, finalize current chunk
+            if current_tokens + paragraph_tokens > max_tokens_per_chunk and current_chunk:
+                chunk_content = '\n\n'.join(current_chunk)
+                chunks.append({
+                    'content': chunk_content,
+                    'tokens': current_tokens
+                })
+                
+                # Start new chunk with overlap (keep last paragraph if it fits)
+                if overlap_tokens > 0 and current_chunk:
+                    last_para = current_chunk[-1]
+                    last_para_tokens = self._estimate_token_count(last_para)
+                    if last_para_tokens <= overlap_tokens:
+                        current_chunk = [last_para]
+                        current_tokens = last_para_tokens
+                    else:
+                        current_chunk = []
+                        current_tokens = 0
+                else:
+                    current_chunk = []
+                    current_tokens = 0
+            
+            # Add current paragraph
+            current_chunk.append(paragraph)
+            current_tokens += paragraph_tokens
         
-        return enhanced_content
+        # Add final chunk if it has content
+        if current_chunk:
+            chunk_content = '\n\n'.join(current_chunk)
+            chunks.append({
+                'content': chunk_content,
+                'tokens': current_tokens
+            })
+        
+        # Format chunks with minimal headers
+        result = header
+        for i, chunk in enumerate(chunks, 1):
+            result += f"--- Part {i} ---\n"
+            result += chunk['content'] + "\n\n"
+        
+        return result
+
+    async def query_documents_with_sources(self, query: str, document_ids: Optional[List[str]] = None) -> tuple[str, list[str]]:
+        """Query the document index and return both response and source documents."""
+        try:
+            if not self.query_engine:
+                raise ValueError("Query engine not initialized")
+            
+            sources = []
+            
+            # Update LLM settings to ensure current max_tokens is used
+            self.update_llm_settings()
+            
+            # CRITICAL FIX: Handle document_ids parameter properly
+            if document_ids is not None and len(document_ids) == 0:
+                # Empty array means "use no documents" - generate using LLM general knowledge
+                print("Empty document_ids list provided - generating content using LLM general knowledge")
+                response_text = self.llm.complete(query).text
+                return self._format_response_as_markdown(response_text), []
+            elif document_ids is not None and len(document_ids) > 0:
+                # Specific document IDs provided
+                print(f"Querying specific documents: {document_ids}")
+                # TODO: Implement document-specific retrieval based on document_ids
+                # For now, fall through to regular logic but this needs to be implemented
+            else:
+                # document_ids is None - use all documents (default behavior)
+                print("No document_ids specified - querying all documents")
+            
+            # First, check if this is a document-specific query that should use direct document loading
+            matching_documents = self._detect_document_specific_query(query)
+            
+            if matching_documents:
+                print(f"Using direct document analysis for: {matching_documents}")
+                sources = matching_documents
+                
+                # Use direct document analysis for other documents
+                direct_prompt = self._create_direct_document_prompt(matching_documents, query)
+                if direct_prompt:
+                    # Use LLM directly with the full document content
+                    response_text = self.llm.complete(direct_prompt).text
+                    return self._format_response_as_markdown(response_text), sources
+            
+            # Check if this is a targeted query for specific documents
+            query_lower = query.lower()
+            target_keywords = []
+            
+            # Look for specific document keywords in the query
+            if any(keyword in query_lower for keyword in ['pset-rfc', 'pset rfc', 'inter ai agent', 'communication protocol']):
+                target_keywords.extend(['pset-rfc', 'pset_rfc', 'inter_ai_agent', 'communication'])
+            if 'orchestrator' in query_lower:
+                target_keywords.extend(['orchestrator', 'plugin'])
+            if 'google' in query_lower and 'a2a' in query_lower:
+                target_keywords.extend(['google', 'a2a', 'streaming'])
+            
+            # Use targeted retrieval if specific keywords found
+            if target_keywords:
+                print(f"Using targeted retrieval for keywords: {target_keywords}")
+                targeted_engine = self._create_targeted_query_engine(target_keywords, similarity_top_k=10)
+                response = targeted_engine.query(query)
+                sources = self._extract_sources_from_response(response)
+            else:
+                # Use standard multi-document retrieval
+                response = self.query_engine.query(query)
+                sources = self._extract_sources_from_response(response)
+            
+            # CLEAN UP RESPONSE: Extract only the AI-generated answer
+            if hasattr(response, 'response') and response.response:
+                raw_response = response.response.strip()
+                
+                # Remove metadata sections that start with separators
+                clean_response = raw_response
+                
+                # Split on common LlamaIndex separators and take only the first part
+                separators = [
+                    "--------------------",
+                    "doc_id:",
+                    "Context information is below",
+                    "Helpful Answer:",
+                    "system:",
+                    "\n\ndoc_id:",
+                    "\n--------------------"
+                ]
+                
+                for separator in separators:
+                    if separator in clean_response:
+                        clean_response = clean_response.split(separator)[0].strip()
+                        break
+                
+                # Additional cleanup: remove any trailing metadata-like content
+                lines = clean_response.split('\n')
+                clean_lines = []
+                
+                for line in lines:
+                    # Skip lines that look like metadata
+                    if any(metadata_indicator in line.lower() for metadata_indicator in [
+                        'doc_id:', 'file_path:', 'title:', 'type:', 'size_bytes:', 'created_at:', 
+                        'modified_at:', 'mime_type:', 'encoding:', 'platform:', 'file_hash:',
+                        'confluence_sync_', 'absolute_path:', 'relative_path:'
+                    ]):
+                        break
+                    clean_lines.append(line)
+                
+                result = '\n'.join(clean_lines).strip()
+            else:
+                result = str(response).strip() if response else ""
+            
+            if not result or result.lower() in ['', 'empty response', 'empty response.']:
+                return "I couldn't find relevant information in the documents to answer your question.", sources
+            
+            # Truncate response to respect max_tokens setting
+            settings = self._load_app_settings()
+            result = self._truncate_response_to_max_tokens(result, settings['max_tokens'])
+            
+            return result, sources
+            
+        except Exception as e:
+            print(f"Error in query_documents_with_sources: {e}")
+            return f"Error querying documents: {str(e)}", []
+
+    def _extract_sources_from_response(self, response) -> list[str]:
+        """Extract source document filenames from LlamaIndex response."""
+        sources = []
+        
+        try:
+            # Check if response has source_nodes (from vector retrieval)
+            if hasattr(response, 'source_nodes') and response.source_nodes:
+                for node in response.source_nodes:
+                    # Extract filename from metadata
+                    if hasattr(node, 'node') and hasattr(node.node, 'metadata'):
+                        metadata = node.node.metadata
+                        # Try different metadata keys for filename
+                        filename = (metadata.get('filename') or 
+                                  metadata.get('file_name') or 
+                                  metadata.get('title') or
+                                  metadata.get('source'))
+                        if filename and filename not in sources:
+                            # Clean filename for display
+                            clean_filename = filename.replace('confluence_', '').replace('_confluen.md', '')
+                            sources.append(clean_filename)
+            
+            # Fallback: extract from response text if available
+            elif hasattr(response, 'metadata') and response.metadata:
+                for doc_id, metadata in response.metadata.items():
+                    filename = (metadata.get('filename') or 
+                              metadata.get('file_name') or 
+                              metadata.get('title'))
+                    if filename and filename not in sources:
+                        clean_filename = filename.replace('confluence_', '').replace('_confluen.md', '')
+                        sources.append(clean_filename)
+            
+        except Exception as e:
+            print(f"Error extracting sources: {e}")
+        
+        return sources
 
     async def query_documents(self, query: str, document_ids: Optional[List[str]] = None) -> str:
         """Query the document index with a natural language question."""
@@ -1780,7 +2257,10 @@ CONTENT:
             
             if matching_documents:
                 print(f"Using direct document analysis for: {matching_documents}")
-                # Use direct document analysis for better results
+                
+
+                
+                # Use direct document analysis for other documents
                 direct_prompt = self._create_direct_document_prompt(matching_documents, query)
                 if direct_prompt:
                     # Use LLM directly with the full document content
@@ -1878,6 +2358,91 @@ CONTENT:
         
         return conversation_history
 
+    async def chat_with_documents_with_sources(self, message: str, conversation_history: Optional[List] = None) -> tuple[str, list[str]]:
+        """Chat with documents and return both response and source documents."""
+        try:
+            if not self.chat_engine:
+                raise ValueError("Chat engine not initialized")
+            
+            sources = []
+            
+            # Update LLM settings to ensure current max_tokens is used
+            self.update_llm_settings()
+            
+            # Load settings for conversation history management
+            settings = self._load_app_settings()
+            
+            # Load max_tokens for later use, but don't validate here since Smart Context Management handles it
+            max_tokens = settings.get('max_tokens', 512)
+            
+            # Log the message length for debugging
+            message_tokens = self._estimate_token_count(message)
+            print(f"📝 Processing message: {message_tokens} tokens, max_tokens: {max_tokens}")
+            
+            # Truncate conversation history more aggressively if needed
+            truncated_history = self._truncate_conversation_history(conversation_history, settings)
+            
+            # Estimate total input tokens (message + history + system prompt overhead)
+            # But rely on Smart Context Management for actual token management
+            history_tokens = 0
+            if truncated_history:
+                history_text = " ".join([f"{msg.get('role', '')}: {msg.get('content', '')}" for msg in truncated_history])
+                history_tokens = self._estimate_token_count(history_text)
+            
+            system_prompt_overhead = 200  # Estimate for system prompt and formatting
+            total_input_tokens = message_tokens + history_tokens + system_prompt_overhead
+            
+            print(f"🔍 Input breakdown: message={message_tokens}, history={history_tokens}, overhead={system_prompt_overhead}, total={total_input_tokens}")
+            
+            # Reset chat engine if new conversation or no history
+            if not truncated_history:
+                self.chat_engine.reset()
+            
+            # Skip hardcoded document-specific detection - use semantic similarity instead
+            # (commented out to remove hardcoded document dependencies)
+            
+            # Use generic multi-document query engine for semantic similarity
+            print(f"Using semantic similarity retrieval for query: {message[:50]}...")
+            multi_doc_engine = self._create_multi_document_query_engine(similarity_top_k=8)
+            response = multi_doc_engine.query(message)
+            sources = self._extract_sources_from_response(response)
+            
+            if hasattr(response, 'response') and response.response:
+                result = response.response.strip()
+            else:
+                result = str(response).strip() if response else ""
+                # Log conversation history info for debugging
+                if truncated_history:
+                    print(f"Using conversation history: {len(truncated_history)} messages (max: {settings.get('max_conversation_history', 10)})")
+                else:
+                    print("No conversation history used")
+                
+                # Use standard chat engine with error handling for token limits
+                try:
+                    response = self.chat_engine.chat(message)
+                    sources = self._extract_sources_from_response(response)
+                    
+                    if hasattr(response, 'response') and response.response:
+                        result = response.response.strip()
+                    else:
+                        result = str(response).strip() if response else ""
+                        
+                except Exception as chat_error:
+                    error_msg = str(chat_error).lower()
+                    if "token" in error_msg and ("limit" in error_msg or "exceed" in error_msg):
+                        return f"Error: Message too long for current model settings. Please try a shorter message or increase max_tokens in settings. Current limit: {max_tokens} tokens.", []
+                    else:
+                        return f"Error in chat processing: {str(chat_error)}", []
+            
+            # Truncate response to respect max_tokens setting
+            result = self._truncate_response_to_max_tokens(result, max_tokens)
+            
+            return result, sources
+            
+        except Exception as e:
+            print(f"Error in chat_with_documents_with_sources: {e}")
+            return f"Error in chat: {str(e)}", []
+
     async def chat_with_documents(self, message: str, conversation_history: Optional[List] = None) -> str:
         """Chat with documents using the chat engine."""
         try:
@@ -1890,51 +2455,39 @@ CONTENT:
             # Load settings for conversation history management
             settings = self._load_app_settings()
             
-            # Truncate conversation history based on settings
+            # Load max_tokens for later use, but don't validate here since Smart Context Management handles it
+            max_tokens = settings.get('max_tokens', 512)
+            
+            # Log the message length for debugging
+            message_tokens = self._estimate_token_count(message)
+            print(f"📝 Processing message: {message_tokens} tokens, max_tokens: {max_tokens}")
+            
+            # Truncate conversation history more aggressively if needed
             truncated_history = self._truncate_conversation_history(conversation_history, settings)
+            
+            # Estimate total input tokens (message + history + system prompt overhead)
+            # But rely on Smart Context Management for actual token management
+            history_tokens = 0
+            if truncated_history:
+                history_text = " ".join([f"{msg.get('role', '')}: {msg.get('content', '')}" for msg in truncated_history])
+                history_tokens = self._estimate_token_count(history_text)
+            
+            system_prompt_overhead = 200  # Estimate for system prompt and formatting
+            total_input_tokens = message_tokens + history_tokens + system_prompt_overhead
+            
+            print(f"🔍 Input breakdown: message={message_tokens}, history={history_tokens}, overhead={system_prompt_overhead}, total={total_input_tokens}")
             
             # Reset chat engine if new conversation or no history
             if not truncated_history:
                 self.chat_engine.reset()
             
-            # First, check if this is a document-specific query that should use direct document loading
-            matching_documents = self._detect_document_specific_query(message)
+            # Skip hardcoded document-specific detection - use semantic similarity instead
+            # (commented out to remove hardcoded document dependencies)
             
-            if matching_documents:
-                print(f"Using direct document analysis for chat: {matching_documents}")
-                # Use direct document analysis for better results
-                direct_prompt = self._create_direct_document_prompt(matching_documents, message)
-                if direct_prompt:
-                    # Use LLM directly with the full document content
-                    response_text = self.llm.complete(direct_prompt).text
-                    return self._format_response_as_markdown(response_text)
-            
-            # Check if this is a targeted query for specific documents
-            message_lower = message.lower()
-            target_keywords = []
-            
-            # Look for specific document keywords in the message
-            if any(keyword in message_lower for keyword in ['pset-rfc', 'pset rfc', 'inter ai agent', 'communication protocol']):
-                target_keywords.extend(['pset-rfc', 'pset_rfc', 'inter_ai_agent', 'communication'])
-            if 'orchestrator' in message_lower:
-                target_keywords.extend(['orchestrator', 'plugin'])
-            if 'google' in message_lower and 'a2a' in message_lower:
-                target_keywords.extend(['google', 'a2a', 'streaming'])
-            
-            # For targeted queries, use query engine instead of chat engine for better precision
-            if target_keywords:
-                print(f"Using targeted retrieval for chat message with keywords: {target_keywords}")
-                targeted_engine = self._create_targeted_query_engine(target_keywords, similarity_top_k=10)
-                response = targeted_engine.query(message)
-            else:
-                # Log conversation history info for debugging
-                if truncated_history:
-                    print(f"Using conversation history: {len(truncated_history)} messages (max: {settings.get('max_conversation_history', 10)})")
-                else:
-                    print("No conversation history used")
-                
-                # Use standard chat engine
-                response = self.chat_engine.chat(message)
+            # Use generic multi-document query engine for semantic similarity
+            print(f"Using semantic similarity retrieval for query: {message[:50]}...")
+            multi_doc_engine = self._create_multi_document_query_engine(similarity_top_k=8)
+            response = multi_doc_engine.query(message)
             
             # CLEAN UP RESPONSE: Extract only the AI-generated answer
             if hasattr(response, 'response') and response.response:
@@ -2529,31 +3082,54 @@ REMEMBER: You may have context from multiple documents even if not explicitly la
                 print("Reinitialize engines with updated settings")
     
     def _truncate_response_to_max_tokens(self, response: str, max_tokens: int) -> str:
-        """Truncate response to respect max_tokens setting."""
-        # Rough token estimation: 1 token ≈ 4 characters
-        estimated_tokens = len(response) // 4
+        """Provide smart partial responses when content exceeds token limits."""
+        estimated_tokens = self._estimate_token_count(response)
         
-        if estimated_tokens > max_tokens:
-            # Calculate target character length
-            target_chars = max_tokens * 4
-            
-            # Find the last complete sentence within the limit
-            truncated = response[:target_chars]
-            last_period = truncated.rfind('.')
-            last_newline = truncated.rfind('\n')
-            
-            # Use whichever boundary is closer to the end and reasonable
-            if last_period > len(truncated) * 0.8:  # If period is in last 20%
-                truncated = truncated[:last_period + 1]
-            elif last_newline > len(truncated) * 0.8:  # If newline is in last 20%
-                truncated = truncated[:last_newline]
-            else:
-                # Just cut at target length if no good boundary found
-                truncated = truncated
-            
-            return truncated
+        if estimated_tokens <= max_tokens * 0.4:  # 40% for response
+            return response
         
-        return response 
+        # For responses that are too long, provide a meaningful partial response
+        target_tokens = int(max_tokens * 0.35)  # Be conservative, leave room for messaging
+        target_chars = target_tokens * 4
+        
+        # Try to find a good breaking point
+        truncated = response[:target_chars]
+        
+        # Find natural break points
+        break_points = [
+            truncated.rfind('\n\n'),  # Paragraph break
+            truncated.rfind('\n# '),   # Heading
+            truncated.rfind('. '),     # Sentence end
+            truncated.rfind('\n'),     # Line break
+        ]
+        
+        # Use the best break point that's reasonably close to the end
+        best_break = 0
+        for break_point in break_points:
+            if break_point > len(truncated) * 0.7:  # In last 30%
+                best_break = break_point
+                break
+        
+        if best_break > 0:
+            truncated = truncated[:best_break]
+        
+        # Add helpful continuation message
+        remaining_chars = len(response) - len(truncated)
+        continuation_msg = f"""
+
+---
+**⚠️ PARTIAL RESPONSE** ({remaining_chars:,} characters truncated)
+
+**Current token limit:** {max_tokens} tokens  
+**Estimated full response:** {estimated_tokens:,} tokens
+
+**To see the complete response:**
+- Increase max_tokens in Settings → Model Settings to at least {estimated_tokens + 500}
+- Or ask more specific questions to get focused answers
+
+**Quick answer to "What does A2A stand for?"**: A2A typically stands for "Agent-to-Agent" communication in AI/automation contexts."""
+        
+        return truncated + continuation_msg 
 
     def _detect_document_specific_query(self, query: str) -> List[str]:
         """
@@ -2571,11 +3147,18 @@ REMEMBER: You may have context from multiple documents even if not explicitly la
             'document:',
             'examine the',
             'analyze this document',
-            'review the document'
+            'review the document',
+            'summarize:',
+            'transcript',
+            'recording',
+            'meeting',
+            'gmt20250630'
         ]
         
         # Check if this looks like a document-specific query
         is_document_specific = any(pattern in query_lower for pattern in specific_patterns)
+        
+
         
         if not is_document_specific:
             # Also check for specific document name mentions
@@ -2585,6 +3168,8 @@ REMEMBER: You may have context from multiple documents even if not explicitly la
                 'adoption of mcp', 'next-generation', 'autodesk assistant'
             ]
             is_document_specific = any(keyword in query_lower for keyword in document_keywords)
+        
+
         
         if not is_document_specific:
             return []
@@ -2615,7 +3200,8 @@ REMEMBER: You may have context from multiple documents even if not explicitly la
                         keywords_found = sum(1 for keyword in [
                             'pset-rfc', 'orchestrator', 'plugin', 'communication', 'protocol',
                             'asset_graph', 'google_a2a', 'streaming', 'conditional', 'write',
-                            'mcp', 'next-generation', 'autodesk', 'assistant'
+                            'mcp', 'next-generation', 'autodesk', 'assistant',
+                            'transcript', 'recording', 'meeting', 'gmt'
                         ] if keyword in filename_lower)
                         
                         score += keywords_found
@@ -2691,21 +3277,35 @@ REMEMBER: You may have context from multiple documents even if not explicitly la
         Create a prompt with full document content for direct analysis.
         Prioritizes the most relevant documents within context limits.
         """
-        max_context_tokens = 3500  # Leave room for query and response
+        # Get current max_tokens setting and be more conservative
+        settings = self._load_app_settings()
+        max_tokens = settings.get('max_tokens', 512)
+        
+        # Use only 50% of max_tokens for context, leave 50% for response
+        max_context_tokens = int(max_tokens * 0.5)
+        
+        # Reserve tokens for query and prompt overhead
+        query_tokens = self._estimate_token_count(query)
+        prompt_overhead = 150  # Estimate for prompt formatting
+        available_tokens = max_context_tokens - query_tokens - prompt_overhead
+        
+        if available_tokens < 200:  # Not enough tokens for meaningful context
+            return None
+        
         total_content = []
         total_tokens = 0
         
-        # Limit to top 3 most relevant documents to avoid information overload
-        relevant_documents = documents[:3]
+        # Limit to top 2 most relevant documents to be more conservative
+        relevant_documents = documents[:2]
         
         for doc_filename in relevant_documents:
             content = self._load_document_content(doc_filename)
             tokens = self._estimate_token_count(content)
             
-            if total_tokens + tokens > max_context_tokens:
+            if total_tokens + tokens > available_tokens:
                 # If adding this document would exceed context, truncate or skip
-                remaining_tokens = max_context_tokens - total_tokens
-                if remaining_tokens > 800:  # Only include if we have reasonable space
+                remaining_tokens = available_tokens - total_tokens
+                if remaining_tokens > 400:  # Only include if we have reasonable space (reduced from 800)
                     truncated_content = content[:remaining_tokens * 4]
                     total_content.append(f"=== DOCUMENT: {doc_filename} (TRUNCATED) ===\n{truncated_content}\n")
                 break
@@ -2732,7 +3332,7 @@ Instructions:
 """
         
         return prompt
-
+    
     # Template Management Methods
     
     async def _load_existing_templates(self):
