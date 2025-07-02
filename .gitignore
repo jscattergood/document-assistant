@@ -16,6 +16,10 @@ data/embeddings/
 data/documents/*
 !data/documents/.gitkeep
 
+# User templates (user data)
+data/templates/*
+!data/templates/.gitkeep
+
 # Cache and temporary data
 data/cache/
 data/temp/
@@ -300,6 +304,7 @@ secrets/
 !data/documents/.gitkeep
 !data/confluence/.gitkeep
 !data/models/.gitkeep
+!data/templates/.gitkeep
 
 # Yarn lock file
 yarn.lock 
